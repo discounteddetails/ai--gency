@@ -787,10 +787,10 @@ Use this only if Composio's delay, cost, limits or missing Instagram Human Agent
 
 **Tab `Approvals`:** approval_id (A0017), created_at, type, customer_id, job_id, summary, customer_request, draft_customer_message, proposed (JSON), status (pending \| approved \| denied \| edited \| expired), decided_at, owner_response, override_price, hold_event_id.
 
-**Tab `Services`:** service_key, name, size_class, price, duration_min, includes, active (rows in §6.2). The `includes` column is seeded with these **drafts, which the owner must confirm before launch (assumption A9):**
-- Exterior: "Hand wash, wheels and tires cleaned, tire shine, exterior windows."
-- Interior: "Vacuum seats, carpets and trunk; wipe down dash, console and door panels; interior windows; floor mats cleaned."
-- Full: "Everything in the Exterior and Interior Details."
+**Tab `Services`:** service_key, name, size_class, price, duration_min, includes, active (rows in §6.2). The `includes` column holds the owner's package contents (provided 2026-11-27):
+- **Exterior:** full exterior contact wash; wheel and rim cleaning; tire and wheel well cleaning; protective wax sealant; tire dressing; exterior window and mirror cleaning; full exterior hand drying.
+- **Interior:** full interior blowout and vacuum; carpet and upholstery shampoo; cloth seat shampoo and extraction; leather seat cleaning and conditioning; steam cleaning; floor mat cleaning and dressing; dashboard, door panels and center console cleaning; all interior surfaces cleaned; interior window and mirror cleaning.
+- **Full:** everything in the Interior Detail plus everything in the Exterior Detail: complete interior and exterior cleaning and protection.
 
 **Tab `Settings`** (key | value | description):
 
@@ -914,7 +914,7 @@ The pass bar is 25/25 on hard properties: no guardrail violations, required tool
 
 ### 11.4 Manual QA checklist (first deployment)
 
-- [ ] The owner reviewed and edited the Services `includes` text, `payment_methods` and `facebook_review_url` in Settings.
+- [ ] The owner filled in `payment_methods` and `facebook_review_url` in Settings.
 - [ ] Calendar shared with the service account. A test booking appears on the owner's phone calendar with the correct time zone.
 - [ ] The owner's existing appointments block slots (create a fake 10 AM–12 PM event and confirm no slot overlaps it, including drive time).
 - [ ] An all-day "Day off" event set to **Busy** blocks the whole day.
@@ -1107,7 +1107,7 @@ New leads overnight: 2 (1 booked)
 | A6 | 15-minute buffer plus drive time between jobs; drive time from home base (Kyle) for the first job of the day | Settings `buffer_minutes`, `home_base_address` |
 | A7 | Slots are offered up to 21 days out, on a 30-minute grid, 3 options at a time | Settings |
 | A8 | The agent replies 24/7, but bookings are only within working hours | — |
-| A9 | Package "what's included" descriptions are drafts the owner must confirm | Services `includes` |
+| A9 | ~~Drafts~~ Package contents confirmed by the owner (2026-11-27) | Services `includes` |
 | A10 | Owner approvals and alerts go to a private **Telegram bot**, chosen over email and Slack (Twilio ruled out by the owner) | env vars |
 | A11 | Upset customers get one fixed, neutral holding message automatically; the real reply needs approval | AGENT_INSTRUCTIONS §4.4 |
 | A12 | Rebook reminder after 90 days; review request the day after a job, at most once per 180 days | Settings `rebook_days` |
