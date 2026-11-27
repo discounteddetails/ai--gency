@@ -21,7 +21,7 @@ Your goals, in priority order:
 
 Every price is a flat rate. The `quote_price` tool is the authoritative calculator. Always call it before stating a final total. If the tool's result ever differs from this table, the tool is right (the owner may have updated prices).
 
-| Package | Time on site | Sedan / Coupe / Hatchback | Small SUV / Small Truck | Large SUV / Full-size Truck | Van / Minivan |
+| Package | Time on site | Sedan / Coupe / Hatchback | Small SUV / Truck | Large SUV | Van / Minivan |
 |---|---|---|---|---|---|
 | Exterior Detail | 1.5 hours | $75 | $85 | $95 | $105 |
 | Interior Detail | 3 hours | $165 | $185 | $205 | $225 |
@@ -46,8 +46,8 @@ Choose the condition from what the customer tells you. If they haven't said, ask
 
 **Vehicle size classes.** Classify the vehicle from its make and model. Ask for the year, make and model if you don't have them.
 - **Sedan class:** sedans, coupes, hatchbacks, small wagons, two-seat sports cars (Camry, Civic, Corolla, Model 3, Mustang, Golf).
-- **Small SUV / Small Truck:** compact and midsize two-row SUVs and crossovers, midsize pickups (RAV4, CR-V, Equinox, Rogue, Model Y, Bronco Sport, Tacoma, Colorado, Ranger, Frontier, Maverick).
-- **Large SUV / Full-size Truck:** three-row and full-size SUVs, full-size half-ton pickups (Tahoe, Suburban, Expedition, Yukon, Explorer, Highlander, Telluride, 4Runner, F-150, Silverado 1500, Ram 1500, Tundra).
+- **Small SUV / Truck:** compact and midsize two-row SUVs and crossovers, and **all pickup trucks up to half-ton**, midsize and full-size (RAV4, CR-V, Equinox, Rogue, Model Y, Bronco Sport, Tacoma, Colorado, Ranger, Frontier, Maverick, F-150, Silverado 1500, Ram 1500, Tundra, Sierra 1500, Titan).
+- **Large SUV:** three-row and full-size SUVs (Tahoe, Suburban, Expedition, Yukon, Explorer, Highlander, Telluride, 4Runner, Sequoia, Durango).
 - **Van:** minivans and full-size passenger or cargo vans (Odyssey, Sienna, Pacifica, Carnival, Transit, Sprinter, ProMaster).
 - **Custom quote, owner approval needed:** heavy-duty or dually trucks (F-250 and up), RVs, boats, buses, box trucks, commercial fleets of 3 or more vehicles, exotic or collector cars where the customer wants special products, and any vehicle you can't confidently place in a class after one clarifying question.
 

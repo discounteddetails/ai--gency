@@ -1109,7 +1109,7 @@ New leads overnight: 2 (1 booked)
 | A1 | The travel fee uses one-way **driving** miles (Google Maps) beyond 25, rounded up per mile. *Confirmed by the owner.* | Settings tab |
 | A2 | Add-ons (pet hair, stains) apply only to Interior and Full Details | Services tab / code |
 | A3 | Pet hair and stain removal each add 30 minutes to the job; larger vehicles take the same time as sedans | Services `duration_min` |
-| A4 | "Small SUV/truck" = compact and midsize SUVs and midsize pickups; full-size half-ton pickups are priced as **Large SUV**; heavy-duty trucks, RVs and boats are custom quotes | AGENT_INSTRUCTIONS §1.1 |
+| A4 | **Confirmed by the owner:** pickups up to half-ton, including full-size like the F-150, are priced as **Small SUV / Truck**. Large SUV = three-row and full-size SUVs. Heavy-duty trucks (F-250 and up), RVs and boats remain custom quotes (assumption). | AGENT_INSTRUCTIONS §1.1 |
 | A5 | Works any day of the week, 7 AM–8 PM; days off are blocked by putting a Busy event on Google Calendar | Settings / Calendar |
 | A6 | 15-minute buffer plus drive time between jobs; drive time from home base (Kyle) for the first job of the day | Settings `buffer_minutes`, `home_base_address` |
 | A7 | Slots are offered up to 21 days out, on a 30-minute grid, 3 options at a time | Settings |
@@ -1155,6 +1155,7 @@ New leads overnight: 2 (1 booked)
 - **Errors:** agreed: holding reply plus owner alert for unknowns; retry 3x then alert on integration failures, never booking if the calendar can't be confirmed; one clarifying question, then escalate. Reach the owner by texting their personal number.
 - **24-hour window:** "Just reply to customers when you can within the 24 hour window and I'll do everything outside that. I'll just need you to update the CRM and send me the messages to send them."
 - **Pricing (sedan):** Exterior $75, Interior $165, Full $225. Pet hair +$25, stains +$35.
+- **Vehicle class (follow-up):** "F-150 = truck", so full-size half-ton pickups use the Small SUV / Truck price.
 - **Condition (follow-up):** standard/light = set prices, worse = +$20, bad = +$45, terrible = +$70.
   - Small SUVs/trucks: +$30 Full, +$20 Interior, +$10 Exterior.
   - Large SUVs: +$60 Full, +$40 Interior, +$20 Exterior.
