@@ -70,10 +70,13 @@ class ComposioClient:
         self._accounts = {"INSTAGRAM": ig_account_id, "FACEBOOK": fb_account_id}
 
     def _account_kwargs(self, prefix: str) -> dict[str, Any]:
-        acct = self._accounts.get(prefix)
-        if acct:
-            return {"connected_account_id": acct}
-        return {"user_id": self._user_id} if self._user_id else {}
+        """Composio needs the user ID, plus the connected account ID when one is pinned."""
+        out: dict[str, Any] = {}
+        if self._user_id:
+            out["user_id"] = self._user_id
+        if acct := self._accounts.get(prefix):
+            out["connected_account_id"] = acct
+        return out
 
     async def execute(self, slug: str, arguments: dict[str, Any]) -> dict[str, Any]:
         if slug not in ALLOWED_TOOLS:
@@ -107,9 +110,8 @@ class ComposioClient:
         """Raw Graph call through the connected account (only used for the Instagram Human Agent test/send)."""
         if endpoint != "/me/messages" or method != "POST":
             raise ToolNotAllowedError(f"proxy {method} {endpoint}")
-        acct = self._accounts.get(toolkit.upper())
-        res = await asyncio.to_thread(self._c.tools.proxy, endpoint=endpoint, method=method, body=body,
-                                      connected_account_id=acct)
+        kwargs = self._account_kwargs(toolkit.upper())
+        res = await asyncio.to_thread(self._c.tools.proxy, endpoint=endpoint, method=method, body=body, **kwargs)
         res = res if isinstance(res, dict) else getattr(res, "model_dump", lambda: dict(res))()
         status = int(res.get("status", 200) or 200)
         data = res.get("data") or {}
