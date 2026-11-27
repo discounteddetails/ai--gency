@@ -184,3 +184,34 @@ async def test_tool_args_tolerant_of_missing_and_extra_fields(w):
     assert not err and json.loads(out)["total"] == 75
     out, err = await run_tool("quote_price", {"size_class": "sedan"}, ctx)
     assert err and json.loads(out)["error"] == "INVALID_SERVICE"
+
+
+async def test_night_polling_every_5_minutes():
+    from app.jobs import scheduler as sch
+
+    class P:
+        n = 0
+
+        async def poll_once(self):
+            P.n += 1
+
+    p, last = P(), {}
+    t = [0.0]
+    import time as _t
+    orig = _t.monotonic
+    _t.monotonic = lambda: t[0]
+    try:
+        with time_machine.travel(datetime(2026, 12, 1, 23, 0, tzinfo=clock.TZ), tick=False):  # 11 PM
+            for minute in range(10):
+                t[0] = minute * 60.0
+                await sch.poll_if_due(p, last, 60, 300)
+        assert P.n == 2  # minutes 0 and 5
+        P.n, last = 0, {}
+        with time_machine.travel(datetime(2026, 12, 1, 9, 0, tzinfo=clock.TZ), tick=False):  # 9 AM
+            for minute in range(10):
+                t[0] = 10_000 + minute * 60.0
+                await sch.poll_if_due(p, last, 60, 300)
+        assert P.n == 10
+    finally:
+        _t.monotonic = orig
+    assert sch.is_night(22) and sch.is_night(5) and not sch.is_night(6) and not sch.is_night(21)

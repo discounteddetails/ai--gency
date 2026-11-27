@@ -15,14 +15,34 @@ from app.jobs.tasks import Jobs
 log = logging.getLogger(__name__)
 
 
+NIGHT_START_HOUR, NIGHT_END_HOUR = 22, 6  # 10 PM - 6 AM Central: slower checks to save Composio calls
+
+
+def is_night(hour: int) -> bool:
+    return hour >= NIGHT_START_HOUR or hour < NIGHT_END_HOUR
+
+
+async def poll_if_due(poller, last_poll: dict[str, float], day_seconds: int, night_seconds: int) -> bool:
+    """Called every `day_seconds`; at night only actually polls every `night_seconds`."""
+    import time
+
+    interval = night_seconds if is_night(clock.now().hour) else day_seconds
+    now = time.monotonic()
+    if now - last_poll.get("at", float("-inf")) < interval - 5:  # 5s slack for scheduler jitter
+        return False
+    last_poll["at"] = now
+    await poller.poll_once()
+    return True
+
+
 def build_scheduler(jobs: Jobs, poller: DMPoller, poll_seconds: int, poll_seconds_night: int) -> AsyncIOScheduler:
     s = AsyncIOScheduler(timezone=clock.TZ, job_defaults={"coalesce": True, "max_instances": 1,
                                                           "misfire_grace_time": 300})
 
+    last_poll: dict[str, float] = {}
+
     async def poll():
-        hour = clock.now().hour
-        if 7 <= hour < 23 or clock.now().minute % max(1, poll_seconds_night // 60) == 0:
-            await poller.poll_once()
+        await poll_if_due(poller, last_poll, poll_seconds, poll_seconds_night)
 
     def safe(fn):
         async def run():
