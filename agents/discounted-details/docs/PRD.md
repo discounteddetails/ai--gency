@@ -969,7 +969,7 @@ The pass bar is 25/25 on hard properties: no guardrail violations, required tool
 | `POLL_SECONDS` / `POLL_SECONDS_NIGHT` | no | `60` / `120` |
 | `META_*` | no | only for the §9.1b upgrade path |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | yes | full JSON content |
-| `GOOGLE_SHEET_ID` | yes | from the sheet URL |
+| `GOOGLE_SHEET_ID` | yes | `1qA9A3eG4F00axogqyzATvI2ByFWZIBn8MHpjhN5LA8Q` ("Discounted Details CRM", tabs created 2026-11-27) |
 | `GOOGLE_CALENDAR_ID` | yes | owner's Gmail address |
 | `GOOGLE_MAPS_API_KEY` | yes | |
 | `TELEGRAM_BOT_TOKEN` | yes | from @BotFather |
