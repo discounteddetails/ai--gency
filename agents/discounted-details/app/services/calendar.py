@@ -110,6 +110,8 @@ class GoogleCalendar:
         for k in ("start", "end"):
             if k in fields:
                 body[k] = {"dateTime": fields.pop(k).isoformat(), "timeZone": "America/Chicago"}
+        if "private" in fields:
+            body["extendedProperties"] = {"private": fields.pop("private")}
         body.update(fields)
         await self._call(self._svc.events().patch(calendarId=self.calendar_id, eventId=event_id, body=body,
                                                   sendUpdates="none"))
