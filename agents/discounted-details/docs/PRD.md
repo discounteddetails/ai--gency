@@ -582,9 +582,9 @@ Add a Dockerfile (python:3.12-slim, uv sync --frozen --no-dev, non-root user, CM
 
 ### 9.1 Instagram + Messenger through Composio (V1)
 
-- **What it is:** Composio holds the OAuth connection to the owner's Instagram Business account and Facebook Page through its own Meta app, which already has the messaging permissions. Dex calls Composio's tools by name. **No Meta developer app, App Review or webhook hosting is needed for V1.** Verified on 2026-11-27: `INSTAGRAM_LIST_ALL_CONVERSATIONS` returned the account's 25 most recent conversations.
+- **What it is:** Composio holds the OAuth connection to the owner's Instagram Business account and Facebook Page through its own Meta app, which already has the messaging permissions. Dex calls Composio's tools by name. **No Meta developer app, App Review or webhook hosting is needed for V1.** Verified on 2026-11-27: `INSTAGRAM_LIST_ALL_CONVERSATIONS` returned the account's 25 most recent conversations, and with the Facebook connection, `FACEBOOK_LIST_MANAGED_PAGES` showed the Discounted Details Page (ID 945217095333956) with the MESSAGING task, and `FACEBOOK_GET_PAGE_CONVERSATIONS` returned 25 Messenger conversations.
 - **Setup (owner):**
-  - In the Composio dashboard, connect **Instagram** (done) and **Facebook** (select the Discounted Details Page).
+  - In the Composio dashboard, connect **Instagram** (done) and **Facebook** (done, Discounted Details Page).
   - Create a **Composio API key** for Dex (`COMPOSIO_API_KEY`).
   - Note the user ID the connections belong to (`COMPOSIO_USER_ID`).
 - **Auth:** the Composio API key on every call. Composio injects the Meta tokens and refreshes them. If a connection expires or is revoked, calls fail and Dex alerts the owner to reconnect.
@@ -943,7 +943,7 @@ The pass bar is 25/25 on hard properties: no guardrail violations, required tool
    - Create an API key restricted to Geocoding and Routes.
    - Create the spreadsheet "Discounted Details CRM" and share it with the service-account email (Editor).
    - Share the Google Calendar with the service-account email ("Make changes to events").
-2. **Composio:** connect Instagram (done) and the Facebook Page, create an API key, and note the user ID (§9.1).
+2. **Composio:** Instagram and the Facebook Page are connected (done). Create an API key and note the user ID (§9.1).
 3. **Telegram:** create the bot with @BotFather, send it `/start`, and keep the bot token for Railway (§9.4).
 4. **Anthropic:** create an API key and set a spend limit.
 5. **Railway:**
@@ -964,7 +964,7 @@ The pass bar is 25/25 on hard properties: no guardrail violations, required tool
 | `ANTHROPIC_MODEL` | no | `claude-opus-5-5` |
 | `COMPOSIO_API_KEY` | yes | from the Composio dashboard |
 | `COMPOSIO_USER_ID` | yes | the Composio user the Instagram and Facebook connections belong to |
-| `FB_PAGE_ID` | yes | numeric Facebook Page ID |
+| `FB_PAGE_ID` | yes | `945217095333956` (the Discounted Details Page) |
 | `IG_USER_ID` | yes | `29680530378297751` (the Instagram Business account ID) |
 | `POLL_SECONDS` / `POLL_SECONDS_NIGHT` | no | `60` / `120` |
 | `META_*` | no | only for the §9.1b upgrade path |
