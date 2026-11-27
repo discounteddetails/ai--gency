@@ -16,7 +16,7 @@
 Discounted Details is a one-person mobile detailing business. The owner drives to customers within about 25 miles of Kyle, TX and does Exterior, Interior and Full Details. Most customers reach the business through **Facebook Messenger and Instagram DMs**. Today the owner answers every message by hand between jobs, quotes prices, juggles Google Calendar and keeps customer info in a CRM (OnePageCRM) that doesn't fit the business.
 
 The agent is an always-on service that:
-1. **Answers Messenger and Instagram DMs** within seconds, inside Meta's 24-hour messaging window.
+1. **Answers Messenger and Instagram DMs** within about a minute, inside Meta's 24-hour messaging window. In V1 it connects to both through **Composio**, using Composio's already-approved Meta app, so no Meta App Review is needed (§9.1, decision D7).
 2. **Qualifies leads and quotes exact prices,** including vehicle size, add-ons and a travel fee calculated from real driving distance.
 3. **Offers real open time slots from Google Calendar and books appointments itself,** with no overlaps and with drive time included.
 4. **Runs the CRM in a Google Sheet:** customers, vehicles, jobs, message log, follow-ups, approvals and opt-outs.
@@ -89,7 +89,7 @@ All times are America/Chicago.
 ### 5.1 New lead to booking (happy path)
 
 ```
-Customer DM ─► Meta webhook ─► verify signature ─► dedupe ─► log to Messages tab
+Customer DM ─► Composio poller (every 60s) ─► new messages ─► dedupe ─► log to Messages tab
    ─► debounce 20s (merge rapid-fire messages)
    ─► build context (customer, jobs, window, services, settings)
    ─► Claude tool loop:
@@ -116,8 +116,8 @@ Customer DM ─► Meta webhook ─► verify signature ─► dedupe ─► log
 
 | Trigger | Source | Handler |
 |---|---|---|
-| Customer DM | Meta webhook (`messages`) | Customer conversation (§5.1) |
-| Owner manual reply in the Page or IG inbox | Meta webhook (`message_echoes` / `is_echo` with an `app_id` that isn't ours) | Pause the thread for 12 hours (S14). Log it. |
+| Customer DM | Composio poller finds a new customer message (FR-M1) | Customer conversation (§5.1) |
+| Owner manual reply in the Page or IG inbox | Composio poller finds a business-sent message whose ID isn't in Dex's sent log (FR-M9) | Pause the thread for 12 hours (S14). Log it. |
 | Owner SMS (from `OWNER_PHONE`) | Twilio inbound webhook | Approval reply or owner command |
 | Customer SMS (from any other number) | Twilio inbound webhook | Customer conversation on channel `sms` (§6.8) |
 | Schedule | APScheduler cron | §5.5 jobs |
@@ -179,15 +179,19 @@ Fixed commands are parsed in code first; the LLM handles only free text.
 
 ## 6. Functional requirements
 
-### 6.1 Messaging (Meta)
+### 6.1 Messaging (Instagram + Messenger via Composio)
 
-- **FR-M1:** Accept Messenger and Instagram webhooks on `POST /webhooks/meta`. Verify `X-Hub-Signature-256` (HMAC-SHA256 of the raw body with `META_APP_SECRET`) and reject a mismatch with 403. Handle the verification `GET` (`hub.mode=subscribe`, `hub.verify_token == META_VERIFY_TOKEN`, then echo `hub.challenge`).
-- **FR-M2:** Return 200 within 2 seconds. Hand processing to a background task.
+- **FR-M1: Polling.** Meta can't notify Dex directly when the connection goes through Composio, so a poller job checks for new messages:
+  - every `POLL_SECONDS` (default 60) from 7 AM to 11 PM, and every `POLL_SECONDS_NIGHT` (default 120) overnight,
+  - by calling `INSTAGRAM_LIST_ALL_CONVERSATIONS` and `FACEBOOK_GET_PAGE_CONVERSATIONS`.
+
+  For each conversation whose `updated_time` is newer than the stored `last_polled_at`, it fetches the new messages (`INSTAGRAM_LIST_ALL_MESSAGES` / `INSTAGRAM_GET_CONVERSATION`, `FACEBOOK_GET_CONVERSATION_MESSAGES`) and turns each into a normalized `InboundEvent(channel, sender_id, mid, text, attachments, timestamp, from_business)`. At most one poll runs at a time.
+- **FR-M2:** A poll must finish within 30 seconds. Slow or failed polls are logged and retried at the next tick. After 5 failed polls in a row, the owner gets an SMS ("Dex can't read Instagram/Messenger right now").
 - **FR-M3:** Make processing idempotent on `message.mid`. Store processed IDs in SQLite for 7 days.
 - **FR-M4:** Debounce: wait 20 seconds after the latest inbound message on a thread, then process all unprocessed messages together. Each new message resets the timer.
 - **FR-M5:** Text only. For attachments (images, audio, video, stickers), pass a placeholder like `[customer sent an image]` to the agent, and log the attachment URL in the Messages tab.
 - **FR-M6:** Track `last_inbound_at` per thread. The window is open while `now < last_inbound_at + 24h − 15min`, a 15-minute safety margin.
-- **FR-M7:** Inside 24 hours, outbound sends use `messaging_type: "RESPONSE"`. Between 24 hours and 7 days, the only allowed DMs are owner-approved replies, sent with `messaging_type: "MESSAGE_TAG"` and `tag: "HUMAN_AGENT"` (§6.8). No other message tags are used.
+- **FR-M7:** Inside 24 hours, outbound sends use `messaging_type: "RESPONSE"` (`INSTAGRAM_SEND_TEXT_MESSAGE`, or `FACEBOOK_SEND_MESSAGE` with `messaging_type=RESPONSE`). Between 24 hours and 7 days, the only allowed DMs are owner-approved replies, sent with `messaging_type: "MESSAGE_TAG"` and `tag: "HUMAN_AGENT"` (§6.8). No other message tags are used.
 - **FR-M8:** Before every send, re-check in code:
   - the channel is allowed for this message (§6.8),
   - the customer is not Do Not Contact,
@@ -195,9 +199,9 @@ Fixed commands are parsed in code first; the LLM handles only free text.
   - the agent is not globally paused,
   - the length limit holds (900 characters for DMs, 320 for texts),
   - the guardrail lint passes (§6.6).
-- **FR-M9:** Echo detection: on `is_echo: true` where `app_id` ≠ `META_APP_ID`, set `paused_until = now + OWNER_TAKEOVER_HOURS` (default 12) for that thread, and log the owner's message to the Messages tab with `direction = owner_manual`.
-- **FR-M10:** Never subscribe to `feed`, `comments` or `mentions` webhook fields.
-- **FR-M11:** Customer identity is keyed on `(channel, sender_id)`, where `sender_id` is the PSID for Messenger and the IGSID for Instagram. On first contact, fetch the profile name (Messenger: `GET /{psid}?fields=first_name,last_name`; Instagram: `GET /{igsid}?fields=name,username`), best-effort. If a phone number given later matches an existing customer, link the new channel ID to that customer (`Customers.messenger_psid` / `instagram_igsid`) instead of creating a duplicate.
+- **FR-M9: Owner takeover detection.** Every message Dex sends is recorded in SQLite (`sent_messages`) with the message ID Composio returns. A business-sent message the poller finds whose ID isn't in `sent_messages` was sent by the owner by hand. Dex then sets `paused_until = now + OWNER_TAKEOVER_HOURS` (default 12) for that thread and logs the message with `direction = owner_manual`.
+- **FR-M10:** Dex never calls Composio's comment, mention, posting or profile-editing tools (`INSTAGRAM_REPLY_TO_COMMENT`, `INSTAGRAM_POST_IG_MEDIA_COMMENTS`, `INSTAGRAM_CREATE_POST`, etc.). A code allowlist limits Dex to the read-conversation and send-message tools listed in §9.1.
+- **FR-M11:** Customer identity is keyed on `(channel, sender_id)`, where `sender_id` is the PSID for Messenger and the IGSID for Instagram. On first contact, fetch the profile name best-effort from the conversation's participant data, or with `composio proxy` to `GET /{id}?fields=name,username`. If a phone number given later matches an existing customer, link the new channel ID to that customer (`Customers.messenger_psid` / `instagram_igsid`) instead of creating a duplicate.
 
 ### 6.2 Pricing (`services/pricing.py`)
 
@@ -339,7 +343,10 @@ The prompt asks the model to behave. The code makes sure. Each check returns `GU
 - **FR-H2:** On `YES` or `EDIT`, the runtime sends the exact approved text with `messaging_type: "MESSAGE_TAG"` and `tag: "HUMAN_AGENT"`. Owner-written `EDIT` text from any approval type can be sent this way without a second approval.
 - **FR-H3:** If the 7 days run out before the owner answers, the approval expires and the message becomes an owner follow-up.
 - **FR-H4:** The tag is never used for proactive or bulk messages. This is enforced in code: only `late_reply` approvals and owner-edited approval results may use it.
-- **FR-H5:** The Meta app must have the **Human Agent** permission approved in App Review, for both Messenger and Instagram (§9.1). Until it's approved, the `HUMAN_AGENT_ENABLED` setting stays `false` and late replies go straight to owner follow-ups.
+- **FR-H5: Availability through Composio.**
+  - **Messenger:** `FACEBOOK_SEND_MESSAGE` supports `messaging_type=MESSAGE_TAG` + `tag=HUMAN_AGENT`. Whether it works depends on Composio's Meta app having the Human Agent permission. Build step 17b includes a live test.
+  - **Instagram:** `INSTAGRAM_SEND_TEXT_MESSAGE` has no `tag` field. Step 17b tests whether `composio proxy` can send a tagged message with the Instagram connection.
+  - Each channel is switched on separately in Settings (`human_agent_messenger`, `human_agent_instagram`, both default FALSE) and only after its test passes. While a channel is off, its late replies fall back to text (if allowed) or the owner list.
 
 **Customer texting (S19)**
 - **FR-T1 Consent:** after a booking, the agent asks for text consent with the fixed wording in AGENT_INSTRUCTIONS §4.1. A yes is stored as:
@@ -363,16 +370,17 @@ The prompt asks the model to behave. The code makes sure. Each check returns `GU
 ### 7.1 Diagram
 
 ```
-                    ┌──────────────────────────────── Railway (1 service + volume) ───────────────────────────────┐
- Messenger/IG ─────►│ FastAPI  /webhooks/meta ─┐                                                                  │
-                    │                          ├─► Debouncer ─► Agent Runner ─► Claude API (Messages + tools)     │
- Owner SMS ────────►│ FastAPI  /webhooks/twilio┘                    │                                             │
- (Twilio)           │                                               ├─► Tool handlers ─► Google Sheets (CRM)     │
-                    │ APScheduler (cron jobs) ──────────────────────┤                   ─► Google Calendar         │
-                    │                                               │                   ─► Google Maps Routes      │
-                    │ SQLite (/data/agent.db): dedupe, threads,     │                   ─► Meta Send API           │
-                    │   LLM history, locks, approvals mirror        │                   ─► Twilio (owner SMS)      │
-                    └───────────────────────────────────────────────────────────────────────────────────────────────┘
+                    ┌──────────────────────────── Railway (1 service + volume) ────────────────────────────┐
+ Instagram/      ◄─►│ Composio poller (every 60s) ─┐                                                     │
+ Messenger          │   via Composio API           ├─► Debouncer ─► Agent Runner ─► Claude API           │
+ (through Composio) │                              │                     │                               │
+ SMS (owner +    ──►│ FastAPI /webhooks/twilio ────┘                     ├─► Google Sheets (CRM)         │
+ customers)         │                                                    ├─► Google Calendar             │
+                    │ APScheduler (cron jobs) ───────────────────────────┤   Google Maps Routes          │
+                    │                                                    ├─► Composio send tools         │
+                    │ SQLite (/data/agent.db): dedupe, threads,          └─► Twilio (SMS)                │
+                    │   LLM history, sent_messages, approvals mirror                                     │
+                    └────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### 7.2 Stack
@@ -387,7 +395,7 @@ The prompt asks the model to behave. The code makes sure. Each check returns `GU
 | CRM | Google Sheets via `gspread` (service account) | The owner can see and edit it |
 | Calendar | `google-api-python-client` Calendar v3 (service account; the owner shares their calendar with it) | No OAuth refresh-token babysitting |
 | Maps | Google Maps Platform: Geocoding API and Routes API `computeRoutes`, via `httpx` | Driving distance and time |
-| Meta | Graph API via `httpx` | Messenger and Instagram |
+| Instagram + Messenger | **Composio** Python SDK (`composio`), with tool calls by slug; `composio proxy` for anything a tool doesn't cover | Uses Composio's approved Meta app: no App Review and no webhooks to host |
 | Owner SMS | `twilio` Python SDK | Sending, plus `RequestValidator` for signatures |
 | Config | `pydantic-settings` reading env vars | Typed config |
 | Tests | `pytest`, `pytest-asyncio`, `respx` (HTTP mocks), `time-machine` (clock) | |
@@ -397,8 +405,8 @@ The prompt asks the model to behave. The code makes sure. Each check returns `GU
 ### 7.3 Why a self-hosted Messages API loop (not Managed Agents)
 
 Anthropic's Managed Agents (beta) can host the agent loop and a sandbox. V1 deliberately uses the **Messages API with a hand-written tool loop hosted by us**:
-- the agent must be triggered by Meta and Twilio webhooks and reply within seconds,
-- every tool is a call to our own code that holds Google, Meta and Twilio credentials and enforces hard guardrails (§6.6),
+- the agent must react to new DMs (found by the Composio poller) and Twilio webhooks within about a minute,
+- every tool is a call to our own code that holds Google, Composio and Twilio credentials and enforces hard guardrails (§6.6),
 - no sandbox or filesystem is needed,
 - it avoids billing for session runtime on top of tokens.
 
@@ -475,9 +483,9 @@ Read agents/discounted-details/docs/PRD.md and agents/discounted-details/docs/AG
 ```
 In agents/discounted-details/, scaffold a Python 3.12 project using uv, with a pyproject.toml declaring the dependencies fastapi, uvicorn[standard], anthropic, gspread, google-api-python-client, google-auth, httpx, twilio, apscheduler<4, pydantic-settings and python-dateutil, and the dev dependencies pytest, pytest-asyncio, respx, time-machine and ruff. Create this layout with empty modules and docstrings:
 app/__init__.py, app/main.py, app/config.py, app/db.py, app/guardrails.py, app/clock.py,
-app/webhooks/meta.py, app/webhooks/twilio.py,
+app/webhooks/twilio.py,
 app/agent/runner.py, app/agent/tools.py, app/agent/handlers.py, app/agent/context.py, app/agent/prompt.py,
-app/services/pricing.py, app/services/maps.py, app/services/calendar.py, app/services/scheduling.py, app/services/sheets.py, app/services/meta_client.py, app/services/owner_sms.py, app/services/approvals.py, app/services/followups.py, app/services/debounce.py,
+app/services/pricing.py, app/services/maps.py, app/services/calendar.py, app/services/scheduling.py, app/services/sheets.py, app/services/composio_client.py, app/services/dm_client.py, app/jobs/dm_poller.py, app/services/owner_sms.py, app/services/approvals.py, app/services/followups.py, app/services/debounce.py,
 app/jobs/scheduler.py, app/jobs/tasks.py,
 scripts/bootstrap_sheet.py, scripts/import_onepagecrm.py,
 tests/ (with conftest.py).
@@ -519,14 +527,14 @@ Implement app/services/calendar.py (Google Calendar v3 via service account): fre
 In app/services/scheduling.py, add book(slot_id, booking_input, crm, calendar, pricing) implementing FR-S5 exactly: verify the slot -> re-check freebusy for [start - travel_in, end + travel_out] -> take a module-level asyncio.Lock -> create the calendar event -> append the Jobs row (status Booked, price fields from a fresh quote) -> upsert the customer (lead_status Booked) and vehicle -> create the reminder follow-up due at 09:00 the day before (sender "agent"; the scheduler flips it to "owner" if the window is closed) -> return the result. If the quote requires approval and there's no approved override, return PRICE_NEEDS_APPROVAL. On a Sheets failure after the event is created, retry 3x, then send the owner an alert and still return success with a warning. Tests: success, SLOT_TAKEN when a conflicting event appears between offer and booking, an expired slot, a Sheets failure after the event is created, and two concurrent bookings for the same slot where exactly one succeeds.
 ```
 
-**Step 9: Meta webhook receiver**
+**Step 9: Composio DM poller**
 ```
-Implement app/webhooks/meta.py per PRD §6.1 and §9.1: GET /webhooks/meta verification; POST /webhooks/meta with X-Hub-Signature-256 verification over the raw body (403 on mismatch); parse both object=="page" (Messenger) and object=="instagram" payloads into a normalized InboundEvent(channel, sender_id, recipient_id, mid, text, attachments, timestamp, is_echo, app_id). Dedupe on mid via db.mark_event_processed. For echoes with app_id != META_APP_ID, set thread paused_until = now + OWNER_TAKEOVER_HOURS and log the message to the Messages tab as direction owner_manual; ignore our own echoes. For customer messages: set last_inbound_at, log to the Messages tab, and hand off to app/services/debounce.py, which waits DEBOUNCE_SECONDS (20) after the last message per thread and then calls agent.runner.run_customer_turn(thread_id, merged_messages). Always return 200 within 2s (process in background tasks). Ignore read receipts, reactions and postbacks in V1 (log them only). Tests: signature valid/invalid, Messenger text, Instagram text, image attachment, duplicate mid, owner echo pauses the thread, and the debounce merging 3 quick messages into one run (use time-machine or an injectable sleep).
+Implement app/services/composio_client.py and app/jobs/dm_poller.py per PRD §6.1 and §9.1. composio_client wraps the Composio Python SDK (install `composio`; read the current SDK docs for the exact client and tools.execute signatures before writing code) with: an ALLOWLIST of the tool slugs in PRD §9.1 (raise if anything else is called), execute(slug, arguments) using COMPOSIO_API_KEY and COMPOSIO_USER_ID, retries (2x on 5xx/timeouts) and mapping of errors to WindowClosedError / RateLimitError / UpstreamError per §9.1. dm_poller runs every POLL_SECONDS (07:00-23:00) or POLL_SECONDS_NIGHT (overnight), never overlapping: list Instagram and Messenger conversations, and for each with updated_time > threads.last_polled_at fetch new messages; normalize to InboundEvent(channel, sender_id, mid, text, attachments, timestamp, from_business); dedupe on mid via db.mark_event_processed. Business-sent messages: if mid is in db.sent_messages ignore, else owner takeover (FR-M9: pause the thread, log direction owner_manual). Customer messages: set last_inbound_at from the message timestamp, log to the Messages tab, hand off to app/services/debounce.py (waits DEBOUNCE_SECONDS=20 after the last message per thread, then calls agent.runner.run_customer_turn(thread_id, merged_messages)). On the very first run, only record current state (do not reply to old messages). After 5 consecutive failed polls, SMS the owner once. Tests with a fake composio_client: new IG message, new Messenger message, image attachment, duplicate mid, owner manual reply pauses the thread, our own sent message ignored, first-run backfill sends nothing, debounce merges 3 quick messages into one run, disallowed tool slug raises.
 ```
 
-**Step 10: Meta send client**
+**Step 10: DM send client (Composio)**
 ```
-Implement app/services/meta_client.py: send_text(channel, recipient_id, text) -> message_id via POST https://graph.facebook.com/{META_GRAPH_VERSION}/me/messages with the page access token (META_PAGE_ACCESS_TOKEN), body {"recipient":{"id":...},"messaging_type":"RESPONSE","message":{"text":...}}. The same endpoint and token serve Instagram (IG messaging via the Messenger Platform, with the IG account linked to the Page); before finalizing, double-check this against the current Meta docs for the configured Graph version and adjust if the docs differ. Map errors per PRD §9.1: outside the window (code 10 / subcode 2018278, or 2534022) -> WindowClosedError; 551 / user unavailable -> RecipientUnavailableError; 190 -> TokenError (also SMS the owner "Meta token expired"); 4/17/32/613 -> rate limit: back off 30s and retry 2x; 5xx -> retry 2x then UpstreamError. Add get_profile(channel, id) per FR-M11 (best-effort, never raises). Log every outbound message to the Messages tab. Tests use respx.
+Implement app/services/dm_client.py: send_text(channel, recipient_id, text, human_agent=False) -> message_id. Instagram -> INSTAGRAM_SEND_TEXT_MESSAGE {recipient_id, text}; Messenger -> FACEBOOK_SEND_MESSAGE {page_id: FB_PAGE_ID, recipient_id, message_text, messaging_type: RESPONSE} (or MESSAGE_TAG + tag HUMAN_AGENT when human_agent=True and Settings allow it for that channel). Record every returned message ID in db.sent_messages BEFORE logging, so the poller never mistakes Dex's messages for the owner's. Map errors per PRD §9.1 (outside window -> WindowClosedError; recipient unavailable -> RecipientUnavailableError; Composio connection expired/revoked -> ConnectionError + SMS the owner 'Reconnect Instagram/Facebook in Composio'; rate limit -> back off 30s, retry 2x; 5xx -> retry 2x then UpstreamError). Add get_profile(channel, id), best-effort via the conversation participants or composio proxy; never raises. Log every outbound message to the Messages tab. Tests with a fake composio_client.
 ```
 
 **Step 11: Owner SMS (Twilio)**
@@ -551,7 +559,7 @@ Implement app/agent/prompt.py (load SYSTEM_PROMPT from docs/AGENT_INSTRUCTIONS.m
 
 **Step 15: Approvals engine**
 ```
-Implement app/services/approvals.py: apply_decision(approval_id, decision, edited_text=None, override_price=None). For discount/custom_quote: on YES, store the override on the Approvals row and in turn_state so book_appointment accepts it. For cancel: delete the calendar event, set the Job to Cancelled, cancel its reminder follow-up. For reschedule: delete the HOLD, patch the job's event to the new time, update the Job row and move its reminder. For bulk_message: for each recipient (excluding DNC), send via meta_client if the window is open, else create an owner follow-up with the message; SMS the owner the counts. For complaint/question: just record. Then call runner.run_approval_result(approval). Implement the timeout and window-warning logic from PRD §5.3 step 6 as a function the scheduler calls. Add a reconcile_jobs() function: for calendar events from the last 7 / next 30 days that have dd_job_id but no Jobs row, back-fill the row. Tests for each approval type with fakes.
+Implement app/services/approvals.py: apply_decision(approval_id, decision, edited_text=None, override_price=None). For discount/custom_quote: on YES, store the override on the Approvals row and in turn_state so book_appointment accepts it. For cancel: delete the calendar event, set the Job to Cancelled, cancel its reminder follow-up. For reschedule: delete the HOLD, patch the job's event to the new time, update the Job row and move its reminder. For bulk_message: for each recipient (excluding DNC), send via dm_client if the window is open, by text if SMS is allowed,, else create an owner follow-up with the message; SMS the owner the counts. For complaint/question: just record. Then call runner.run_approval_result(approval). Implement the timeout and window-warning logic from PRD §5.3 step 6 as a function the scheduler calls. Add a reconcile_jobs() function: for calendar events from the last 7 / next 30 days that have dd_job_id but no Jobs row, back-fill the row. Tests for each approval type with fakes.
 ```
 
 **Step 16: Scheduler + follow-ups**
@@ -566,7 +574,7 @@ Wire SHADOW and PAUSE flags (sqlite kv, toggled by SMS commands, defaulting to S
 
 **Step 17b: Customer texting + 7-day Human Agent replies**
 ```
-Implement PRD §6.8 exactly. (1) app/services/channels.py: choose_channel(customer, thread, message_kind: "reply"|"proactive", now) returning "dm" | "sms" | "human_agent" | "owner" per the §6.8 table, with the 30-min margin on the 7-day window and HUMAN_AGENT_ENABLED from settings. (2) app/services/customer_sms.py: send_customer_sms(customer, text, kind) via Twilio from TWILIO_FROM_NUMBER, enforcing consent, quiet hours (queue to kv sms_queue), 320-char limit, the "Discounted Details:" first-text-of-day prefix, the STOP footer on rebook/promo, and the FR-T6 rate limits; map Twilio 21610 to an opted-out update. (3) Twilio webhook: inbound customer texts -> STOP/START keywords per FR-T3/FR-D4, otherwise find-or-create the customer by phone and run runner.run_customer_turn on channel "sms" (debounced, deduped on MessageSid). (4) meta_client.send_text gains a human_agent flag that sends messaging_type MESSAGE_TAG + tag HUMAN_AGENT; only callable from the late_reply approval path and owner-edited approval results (assert in code). (5) send_reply: implement channel auto|dm|sms using choose_channel; human_agent -> create a late_reply approval with the §6.8 SMS format and return PENDING_OWNER_APPROVAL. (6) record_sms_consent tool. (7) Scheduler: release_queued_texts job; follow-up senders use choose_channel(kind="proactive"); late_reply approvals expire at 7 days -> owner follow-up. Tests: every row of the §6.8 table; consent missing -> SMS_NOT_ALLOWED; STOP then proactive text -> blocked; START re-enables; quiet-hours queueing on a Sunday 10 AM; human agent never chosen for proactive; late reply YES sends with the tag; expiry at 7 days.
+Implement PRD §6.8 exactly. (1) app/services/channels.py: choose_channel(customer, thread, message_kind: "reply"|"proactive", now) returning "dm" | "sms" | "human_agent" | "owner" per the §6.8 table, with the 30-min margin on the 7-day window and the per-channel human_agent_messenger / human_agent_instagram Settings. (2) app/services/customer_sms.py: send_customer_sms(customer, text, kind) via Twilio from TWILIO_FROM_NUMBER, enforcing consent, quiet hours (queue to kv sms_queue), 320-char limit, the "Discounted Details:" first-text-of-day prefix, the STOP footer on rebook/promo, and the FR-T6 rate limits; map Twilio 21610 to an opted-out update. (3) Twilio webhook: inbound customer texts -> STOP/START keywords per FR-T3/FR-D4, otherwise find-or-create the customer by phone and run runner.run_customer_turn on channel "sms" (debounced, deduped on MessageSid). (4) dm_client.send_text(human_agent=True) is only callable from the late_reply approval path and owner-edited approval results (assert in code). Add scripts/test_human_agent.py that the owner runs once with a real test conversation 1-7 days old: it tries Messenger FACEBOOK_SEND_MESSAGE with tag HUMAN_AGENT, and Instagram via `composio proxy` POST /me/messages with messaging_type MESSAGE_TAG + tag HUMAN_AGENT, and prints which channels work so the owner can set human_agent_messenger / human_agent_instagram in Settings. (5) send_reply: implement channel auto|dm|sms using choose_channel; human_agent -> create a late_reply approval with the §6.8 SMS format and return PENDING_OWNER_APPROVAL. (6) record_sms_consent tool. (7) Scheduler: release_queued_texts job; follow-up senders use choose_channel(kind="proactive"); late_reply approvals expire at 7 days -> owner follow-up. Tests: every row of the §6.8 table; consent missing -> SMS_NOT_ALLOWED; STOP then proactive text -> blocked; START re-enables; quiet-hours queueing on a Sunday 10 AM; human agent never chosen for proactive; late reply YES sends with the tag; expiry at 7 days.
 ```
 
 **Step 18: Observability**
@@ -576,7 +584,7 @@ Add structured JSON logging (one line per event, with fields ts, level, event, t
 
 **Step 19: End-to-end integration tests**
 ```
-Create tests/e2e/ with a FakeWorld fixture that provides in-memory fakes for Sheets, Calendar, Maps, Meta and Twilio, plus a scripted fake Anthropic client. Implement every integration scenario in PRD §11.2 as a test (I1-I12). Each test drives the system through the real FastAPI app (httpx AsyncClient) by posting signed Meta/Twilio webhook payloads, and asserts on the fake world's state (calendar events, sheet rows, sent messages, owner SMS).
+Create tests/e2e/ with a FakeWorld fixture that provides in-memory fakes for Sheets, Calendar, Maps, Composio (Instagram + Messenger conversations) and Twilio, plus a scripted fake Anthropic client. Implement every integration scenario in PRD §11.2 as a test (I1-I15). Each test drives the system by adding messages to the fake Composio conversations and running one dm_poller tick, or by posting signed Twilio webhook payloads to the real FastAPI app (httpx AsyncClient), and asserts on the fake world's state (calendar events, sheet rows, sent messages, owner SMS).
 ```
 
 **Step 20: Live-model conversation evals**
@@ -591,12 +599,44 @@ Implement scripts/import_onepagecrm.py: read a OnePageCRM contacts CSV export (t
 
 **Step 22: Docker + deploy**
 ```
-Add a Dockerfile (python:3.12-slim, uv sync --frozen --no-dev, non-root user, CMD uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1) and .dockerignore. Exactly 1 worker is required because the scheduler and locks are in-process. Add docs/DEPLOY.md that walks through PRD §12.1 step by step for a non-developer, including the Meta app setup and App Review checklist from PRD §9.1, the Twilio A2P 10DLC sole-proprietor registration from §9.4, the Google Cloud service account and calendar-sharing steps from §9.2-9.3, and the Railway volume at /data. Make sure `docker build` succeeds locally.
+Add a Dockerfile (python:3.12-slim, uv sync --frozen --no-dev, non-root user, CMD uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1) and .dockerignore. Exactly 1 worker is required because the scheduler and locks are in-process. Add docs/DEPLOY.md that walks through PRD §12.1 step by step for a non-developer, including connecting Instagram and the Facebook Page in Composio and creating the Composio API key (PRD §9.1), the Twilio A2P 10DLC sole-proprietor registration from §9.4, the Google Cloud service account and calendar-sharing steps from §9.2-9.3, and the Railway volume at /data. Make sure `docker build` succeeds locally.
 ```
 
 ## 9. Integrations
 
-### 9.1 Meta (Facebook Messenger + Instagram Messaging)
+### 9.1 Instagram + Messenger through Composio (V1)
+
+- **What it is:** Composio holds the OAuth connection to the owner's Instagram Business account and Facebook Page through its own Meta app, which already has the messaging permissions. Dex calls Composio's tools by name. **No Meta developer app, App Review or webhook hosting is needed for V1.** Verified on 2026-11-27: `INSTAGRAM_LIST_ALL_CONVERSATIONS` returned the account's 25 most recent conversations.
+- **Setup (owner):**
+  - In the Composio dashboard, connect **Instagram** (done) and **Facebook** (select the Discounted Details Page).
+  - Create a **Composio API key** for Dex (`COMPOSIO_API_KEY`).
+  - Note the user ID the connections belong to (`COMPOSIO_USER_ID`).
+- **Auth:** the Composio API key on every call. Composio injects the Meta tokens and refreshes them. If a connection expires or is revoked, calls fail and Dex texts the owner to reconnect.
+- **Tools Dex may call** (code allowlist, FR-M10):
+
+  | Purpose | Instagram | Messenger |
+  |---|---|---|
+  | List conversations | `INSTAGRAM_LIST_ALL_CONVERSATIONS` | `FACEBOOK_GET_PAGE_CONVERSATIONS` |
+  | Read messages | `INSTAGRAM_LIST_ALL_MESSAGES`, `INSTAGRAM_GET_CONVERSATION` | `FACEBOOK_GET_CONVERSATION_MESSAGES` |
+  | Send text | `INSTAGRAM_SEND_TEXT_MESSAGE` {recipient_id, text} | `FACEBOOK_SEND_MESSAGE` {page_id, recipient_id, message_text, messaging_type, tag} |
+  | Mark seen | `INSTAGRAM_MARK_SEEN` | `FACEBOOK_MARK_MESSAGE_SEEN` |
+  | Raw Graph call (Human Agent test only) | `composio proxy` | — |
+
+- **No push notifications:** Composio has no trigger for new Instagram or Messenger DMs, so Dex polls (FR-M1). The reply delay is up to about 1 minute in the day and 2 minutes overnight, plus the 20-second debounce.
+- **Call volume:** about 2 list calls per poll (Instagram + Messenger), plus 1–2 message fetches per conversation with new activity. At the defaults that's about **2,400 calls per day, or 70,000–80,000 per month**, plus sends. **Check that the owner's Composio plan covers this.** Raising `POLL_SECONDS` to 90 cuts volume by a third.
+- **Errors:**
+
+  | Situation | Handling |
+  |---|---|
+  | Tool returns `successful: false` mentioning the 24-hour window or error code 10 / subcode 2018278 | `WindowClosedError` → next channel in §6.8 |
+  | Recipient unavailable (blocked the account or deleted it) | Tag the customer `unreachable`, cancel agent follow-ups |
+  | Connection expired or revoked | Pause DM sending, SMS the owner "Reconnect Instagram/Facebook in Composio" |
+  | Composio or Meta rate limit (HTTP 429, Meta codes 4/17/32/613) | Back off 30s, retry 2x; the poller skips one tick |
+  | Composio unreachable / 5xx | Retry 2x, then `UpstreamError`; 5 failed polls in a row → owner SMS |
+
+### 9.1b Direct Meta app (upgrade path, not V1)
+
+Use this only if Composio's delay, cost, limits or missing Instagram Human Agent support become a problem. Dex's DM layer (`dm_client`, `dm_poller`) is the only part that changes: it gets swapped for webhooks plus direct Graph API calls as described below. Everything else stays the same.
 
 - **Setup:**
   - Make the Instagram account a **Professional (Business)** account and link it to the Discounted Details Facebook Page.
@@ -640,7 +680,7 @@ Add a Dockerfile (python:3.12-slim, uv sync --frozen --no-dev, non-root user, CM
   | Code / subcode | Meaning | Handling |
   |---|---|---|
   | 10 / 2018278, or 2534022 | Outside the allowed messaging window (24 hours, or 7 days with `HUMAN_AGENT`) | `WindowClosedError` → next channel in §6.8, else owner follow-up |
-  | 10 / 2018309 (or similar permission error on `tag`) | Human Agent permission not granted | Set `HUMAN_AGENT_ENABLED=false`, alert the owner, fall back to owner follow-up |
+  | 10 / 2018309 (or similar permission error on `tag`) | Human Agent permission not granted | Set that channel's `human_agent_*` setting to FALSE, alert the owner, fall back to owner follow-up |
   | 551 | Person unavailable (blocked the Page or deleted account) | Mark the customer `unreachable` tag, cancel agent follow-ups |
   | 190 | Invalid or expired token | Alert the owner immediately, pause sending |
   | 4, 17, 32, 613 | Rate limited | Back off 30s, retry 2x |
@@ -819,7 +859,7 @@ Add a Dockerfile (python:3.12-slim, uv sync --frozen --no-dev, non-root user, CM
 | booking_prep_message | (blank) |
 | owner_takeover_hours | 12 |
 | extra_busy_calendar_ids | (blank) |
-| human_agent_enabled | FALSE (set TRUE after Meta approves the Human Agent permission) |
+| human_agent_messenger / human_agent_instagram | FALSE / FALSE (set TRUE per channel after `scripts/test_human_agent.py` passes) |
 | sms_customers_enabled | FALSE (set TRUE after Twilio 10DLC approval) |
 | sms_quiet_start_weekday / sms_quiet_start_sunday / sms_quiet_end | 09:00 / 12:00 / 20:00 |
 
@@ -873,8 +913,8 @@ CREATE TABLE kv (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT);
 | Guardrails | "We guarantee a perfect finish" blocked; "$300" blocked when not verified; 901 characters blocked; DNC blocked; third send in a turn blocked; complaint mode with a non-template text blocked |
 | Opt-out pre-filter | "STOP", " stop ", "Not interested" → DNC; "stop by at 3?" → not DNC |
 | Approval parsing | "yes" with one pending → applies; "YES" with two pending → asks which; "edit a17 Sure, $250 works!" → edited; "yes 17 $250" → override 250; SMS from an unknown number → ignored |
-| Meta parsing | Messenger and IG payloads; echo with a foreign app_id → thread paused; duplicate mid → skipped |
-| Signatures | Meta HMAC valid/invalid; Twilio signature valid/invalid |
+| DM poller | New IG and Messenger messages normalized; business message not in sent_messages → thread paused; Dex's own sent message ignored; duplicate mid → skipped; first run replies to nothing; disallowed Composio tool slug → error |
+| Signatures | Twilio signature valid/invalid |
 | Phone normalization | "512-555-0182", "(512) 555 0182", "+1 512 555 0182" → +15125550182 |
 | Channel choice | Reply at 23h → dm; reply at 30h with SMS consent → sms; reply at 30h without consent → human_agent; reply at 6d 23h 45m → owner (30-min margin); proactive at 30h without consent → owner; proactive never → human_agent |
 | Customer SMS | No consent → SMS_NOT_ALLOWED; STOP → opted out, then START → allowed; Sunday 10:30 AM proactive → queued until 12:00; 4th proactive text in 7 days → blocked; prefix added to first text of the day |
@@ -891,7 +931,7 @@ CREATE TABLE kv (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT);
 | I5 | Cancel → owner `NO` | Event untouched, customer told the owner will reach out, owner follow-up created |
 | I6 | Complaint | Only the exact holding message sent, approval created, later customer messages not answered |
 | I7 | "not interested" | DNC set, open follow-ups cancelled, the next inbound gets no reply and the owner is alerted |
-| I8 | Owner replies manually in the Page inbox | Thread paused 12h, the agent doesn't reply to the next customer message, resumes after 12h |
+| I8 | Owner replies manually in the Page or Instagram inbox (poller sees a business message Dex didn't send) | Thread paused 12h, the agent doesn't reply to the next customer message, resumes after 12h |
 | I9 | Reminder due with the window closed | Follow-up switched to sender=owner, appears in the daily summary count |
 | I10 | Job day passes | 9 PM auto-complete, review request queued next day 10 AM, rebook at +90 days |
 | I11 | Google Calendar returns 503 three times | Customer gets the "trouble pulling up the schedule" message, owner alerted, no booking |
@@ -927,7 +967,7 @@ The pass bar is 25/25 on hard properties: no guardrail violations, required tool
 - [ ] Calendar shared with the service account. A test booking appears on the owner's phone calendar with the correct time zone.
 - [ ] The owner's existing appointments block slots (create a fake 10 AM–12 PM event and confirm no slot overlaps it, including drive time).
 - [ ] An all-day "Day off" event set to **Busy** blocks the whole day.
-- [ ] Messenger: a test account (app tester) sends "how much for a full detail on a 2019 Civic" and gets $225 and a request for location/timing in under 60s.
+- [ ] Messenger: a friend's account sends "how much for a full detail on a 2019 Civic" and gets $225 and a request for location/timing in under 60s.
 - [ ] Instagram: the same test.
 - [ ] A test booking end-to-end on both channels. The Sheet rows are correct.
 - [ ] Texting `STATUS`, `TODAY` and `HELP` from the owner's phone gets correct replies. Texting from a different phone gets no reply.
@@ -936,10 +976,11 @@ The pass bar is 25/25 on hard properties: no guardrail violations, required tool
 - [ ] Sending "stop" from a test account marks DNC.
 - [ ] Daily summary arrives at 6:30 AM.
 - [ ] Shadow mode on for the first 7 days. The owner approved at least 20 drafts and edited fewer than 20% of them before turning shadow mode off.
-- [ ] Meta App Review approved (Advanced Access) before turning off shadow mode for real customers.
+- [ ] Instagram and the Facebook Page both show **Active** in Composio, and the Composio plan covers the expected call volume (§9.1).
+- [ ] A new DM is answered within about 90 seconds in the daytime.
 - [ ] Twilio A2P 10DLC campaign approved (covering customer texts), Advanced Opt-Out on, and Settings `sms_customers_enabled` set to TRUE.
 - [ ] Texting STOP to the business number from a test phone stops texts, and START re-enables them.
-- [ ] Meta Human Agent permission approved and Settings `human_agent_enabled` set to TRUE. A test late reply arrives as an approval text, and YES delivers it on Instagram.
+- [ ] `scripts/test_human_agent.py` run, and `human_agent_messenger` / `human_agent_instagram` set to TRUE only for the channels that passed. A test late reply arrives as an approval text, and YES delivers it.
 - [ ] healthchecks.io alert email/SMS works (stop the service and confirm the alert).
 - [ ] Anthropic spend limit and Google Cloud budget alert set.
 
@@ -953,7 +994,7 @@ The pass bar is 25/25 on hard properties: no guardrail violations, required tool
    - Create an API key restricted to Geocoding and Routes.
    - Create the spreadsheet "Discounted Details CRM" and share it with the service-account email (Editor).
    - Share the Google Calendar with the service-account email ("Make changes to events").
-2. **Meta:** complete the §9.1 setup and get a permanent Page token. Webhooks are configured after deploy (step 6).
+2. **Composio:** connect Instagram (done) and the Facebook Page, create an API key, and note the user ID (§9.1).
 3. **Twilio:**
    - Create an account and buy a 512 or 737 local number.
    - Start Sole Proprietor A2P 10DLC registration.
@@ -964,9 +1005,7 @@ The pass bar is 25/25 on hard properties: no guardrail violations, required tool
    - Add a volume mounted at `/data`.
    - Set all env vars (§12.2) and deploy.
    - Note the public URL, for example `https://dd-agent.up.railway.app`.
-6. **Wire webhooks:**
-   - Meta callback `https://…/webhooks/meta` with the verify token, subscribed to the fields in §9.1.
-   - Twilio messaging webhook `https://…/webhooks/twilio`.
+6. **Wire the Twilio webhook:** set the number's messaging webhook to `https://…/webhooks/twilio`. Instagram and Messenger need no webhook, because the poller reads them through Composio.
 7. **Bootstrap the Sheet:** run `railway run python scripts/bootstrap_sheet.py`.
 8. **Optional:** export contacts from OnePageCRM as CSV and run `python scripts/import_onepagecrm.py contacts.csv --dry-run`, then run it again without `--dry-run`.
 9. **Launch:** `SHADOW_MODE_DEFAULT=true`. Run the §11.4 checklist. After 7 days and a passing checklist, text `SHADOW OFF`.
@@ -977,13 +1016,12 @@ The pass bar is 25/25 on hard properties: no guardrail violations, required tool
 |---|---|---|
 | `ANTHROPIC_API_KEY` | yes | `sk-ant-…` |
 | `ANTHROPIC_MODEL` | no | `claude-opus-5-5` |
-| `META_APP_ID` | yes | `1234567890` |
-| `META_APP_SECRET` | yes | |
-| `META_VERIFY_TOKEN` | yes | random 32-character string |
-| `META_PAGE_ACCESS_TOKEN` | yes | |
-| `META_PAGE_ID` | yes | |
-| `META_IG_ACCOUNT_ID` | yes | |
-| `META_GRAPH_VERSION` | yes | current stable, e.g. `v24.0` |
+| `COMPOSIO_API_KEY` | yes | from the Composio dashboard |
+| `COMPOSIO_USER_ID` | yes | the Composio user the Instagram and Facebook connections belong to |
+| `FB_PAGE_ID` | yes | numeric Facebook Page ID |
+| `IG_USER_ID` | yes | `29680530378297751` (the Instagram Business account ID) |
+| `POLL_SECONDS` / `POLL_SECONDS_NIGHT` | no | `60` / `120` |
+| `META_*` | no | only for the §9.1b upgrade path |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | yes | full JSON content |
 | `GOOGLE_SHEET_ID` | yes | from the sheet URL |
 | `GOOGLE_CALENDAR_ID` | yes | owner's Gmail address |
@@ -1022,7 +1060,8 @@ New leads overnight: 2 (1 booked)
 |---|---|---|
 | Service down | healthchecks.io misses 2 pings (10 min) | Email + SMS from healthchecks.io |
 | Unhandled exception | Error hook | Owner SMS (deduped hourly) |
-| Meta token invalid (190) | meta_client | Owner SMS immediately, sending paused |
+| Composio connection expired or revoked | dm_client / dm_poller | Owner SMS immediately ("Reconnect in Composio"), DM sending paused |
+| DM poller failing | dm_poller | Owner SMS after 5 failed polls in a row |
 | Calendar/Sheets unreachable | readyz + tool errors | Owner SMS |
 | LLM failures 3x in a row | runner | Owner SMS "Agent down" |
 | Daily token budget hit | runner | Global PAUSE + owner SMS |
@@ -1030,7 +1069,7 @@ New leads overnight: 2 (1 booked)
 
 ### 12.5 Updating and redeploying
 
-- **Code changes:** push to the deployment branch; Railway auto-builds and redeploys (about 1 minute of downtime). Meta retries webhooks that fail during the restart, and dedupe prevents double processing.
+- **Code changes:** push to the deployment branch; Railway auto-builds and redeploys (about 1 minute of downtime). The DM poller catches up on its first tick after the restart, and dedupe prevents double processing.
 - **Prompt changes:** edit `docs/AGENT_INSTRUCTIONS.md`, run `make eval` (must stay 25/25), then deploy.
 - **Price, hours or settings changes:** the owner edits the Services or Settings tabs. They take effect within 5 minutes, with no deploy. The Agent Instructions price table should be updated at the next deploy so the prompt stays aligned; the tool is authoritative meanwhile.
 - **Rollback:** Railway → Deployments → Redeploy the previous build.
@@ -1040,7 +1079,9 @@ New leads overnight: 2 (1 booked)
 
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
-| Meta App Review delayed or rejected | Medium | High: can't message real customers | Apply on day 1 with a screencast of the booking flow and a privacy policy page. Meanwhile run shadow mode with tester accounts. The owner keeps replying manually until approved. |
+| Composio outage, plan limit or pricing change | Low–Medium | High: Dex can't read or send DMs | Owner SMS after 5 failed polls; plan sized for about 80k calls/month; Dex keeps working on SMS; the §9.1b direct Meta app is a documented swap of one module |
+| Polling delay (up to about 1–2 minutes) feels slow | Low | Low | Still far faster than manual replies; `POLL_SECONDS` can be lowered if the plan allows |
+| Composio's Meta app lacks the Human Agent permission | Medium | Low | Per-channel test script; texts and the owner list cover late replies; §9.1b if it matters |
 | Meta 24-hour window prevents reminders and review requests | High (by design) | Medium | Customer texting with opt-in, owner-approved Human Agent replies for 7 days, and the owner follow-up queue for the rest (§6.8) |
 | Human Agent tag misused (automated or promotional), so Meta restricts the Page | Low | High | Tag only reachable from owner-approved `late_reply` and owner-edited messages (FR-H4, asserted in code); never for proactive messages; tests |
 | Texting without valid consent (TCPA / carrier complaints) | Low | High | Fixed consent wording with exact reply stored; no consent means no texts; STOP honored instantly; quiet hours; per-customer rate limits; "Discounted Details:" identification |
@@ -1075,6 +1116,7 @@ New leads overnight: 2 (1 booked)
 12. **Second technician / second vehicle:** multi-calendar availability.
 13. **Automated data deletion** on request (`FORGET` command) and a privacy policy page generator.
 14. **Managed Agents migration** if hosting the loop ourselves becomes a burden.
+15. **Direct Meta app (§9.1b)** for instant webhooks and guaranteed Human Agent on Instagram, replacing the Composio poller.
 
 ## 15. Appendix
 
@@ -1097,6 +1139,7 @@ New leads overnight: 2 (1 booked)
 
 ### 15.2 Reference links
 
+- Composio docs (CLI, Python SDK, tools): https://docs.composio.dev
 - Meta Messenger Platform: https://developers.facebook.com/docs/messenger-platform
 - Instagram Messaging (Messenger Platform): https://developers.facebook.com/docs/messenger-platform/instagram
 - Meta webhooks: https://developers.facebook.com/docs/graph-api/webhooks
@@ -1144,6 +1187,7 @@ New leads overnight: 2 (1 booked)
 | D1 | Google Sheets replaces OnePageCRM | The owner prefers Sheets as long as follow-ups can be recorded; OnePageCRM's B2B pipeline model doesn't fit vehicles and jobs |
 | D2 | ~~No automated SMS to customers in V1~~ **Revised:** customer texting with opt-in is in V1 (S19) | Owner needs to reach customers after Instagram's 24-hour window |
 | D3 | DMs go out automatically only inside 24 hours. From 24 hours to 7 days, owner-approved replies go out with the Human Agent tag. Everything else goes by text (with consent) or onto the owner's list. | Meta policy, and the owner's choice (second interview follow-up) |
+| D7 | Instagram and Messenger go through **Composio** in V1, polling every 60s, instead of our own Meta app | Owner's choice: skips 1–3 weeks of Meta App Review; tested working on the owner's account. Trade-offs: up to about 1 minute of delay, Composio plan limits, Instagram Human Agent unconfirmed. |
 | D6 | No unofficial Instagram automation (app automation, private APIs) to get around the window | Violates Instagram's terms; risk of an account ban |
 | D4 | Self-hosted Messages API loop on Railway | §7.3 |
 | D5 | Guardrails enforced in code, not only in the prompt | Hard constraints must hold even if the model errs |
@@ -1168,4 +1212,5 @@ New leads overnight: 2 (1 booked)
 - **Durations:** Interior 3 hours, Exterior 1.5 hours, Full 4 hours.
 - **Hours:** 7 AM–8 PM, no job maximum, never overlap calendar events, minimum 3 hours' notice to book.
 - **Tone:** professional and friendly. Signs as "Discounted Details."
+- **Follow-up:** "Can you connect the Composio for Dex to use?" Yes. Composio connection verified (Instagram Business @discounteddetails, 218 followers), and DMs readable. V1 switched to Composio.
 - **Follow-up (after the first spec):** "I want to use Dex but I need to find a way to DM people on Instagram even after 24 hours." Agreed plan: 7-day owner-approved Human Agent replies, plus customer texting with opt-in, plus the owner list as the last resort.
