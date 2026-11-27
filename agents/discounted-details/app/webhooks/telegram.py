@@ -17,7 +17,7 @@ from app.core import Dex
 log = logging.getLogger(__name__)
 _TASKS: set = set()
 HELP = ("Commands:\n/today · /tomorrow — jobs\n/status — what's pending\n/pause · /resume — stop/start replies\n"
-        "/shadow_on · /shadow_off — approve every reply first\n/offer_story — Nova makes a Story image of your current offer\nOr type anything, e.g. \"who's booked Saturday\" or "
+        "/shadow_on · /shadow_off — approve every reply first\n/offer_story — Nova makes a Story image of your current offer\n/design <what you need> — Pixel designs posters and thumbnails (attach photos with /design as the caption)\n/logo — send your logo as a file with this caption\nOr type anything, e.g. \"who's booked Saturday\" or "
         "\"promo 15% off interiors for dog owners\".\nApprovals: tap the buttons, or type yes A17 / no A17 / edit A17 <msg>.")
 TYPED = re.compile(r"^\s*(yes|y|ok|👍|no|n|edit)\b\s*(?:a?(\d+))?\s*(.*)$", re.IGNORECASE | re.DOTALL)
 
@@ -28,6 +28,7 @@ class OwnerBot:
         self.chat_id = int(owner_chat_id)
         self.secret = secret
         self.nova = None  # set by main when Nova is enabled
+        self.pixel = None  # set by main when Pixel is enabled
 
     # ---------------- pending typed input (Edit / Set price / Answer) ----------------
     def _set_pending(self, approval_id: str, action: str) -> None:
@@ -54,6 +55,9 @@ class OwnerBot:
                 await self.dex.owner.send_to(chat, "This is a private bot.")
             log.warning("ignored Telegram update from chat %s", chat)
             return
+        if self.pixel and (msg.get("photo") or msg.get("video") or msg.get("document")) and self.pixel.wants(msg):
+            await self.pixel.add_media(msg)
+            return
         if self.nova and (msg.get("photo") or msg.get("video") or msg.get("document")):
             if await self.nova.add_media(msg):
                 return
@@ -74,6 +78,11 @@ class OwnerBot:
         try:
             aid, action = data.split(":", 1)
         except ValueError:
+            return
+        if aid.startswith("D") and self.pixel:
+            reply = await self.pixel.handle_callback(aid, action)
+            if reply:
+                await self.dex.owner.notify(reply, urgent=True)
             return
         if aid.startswith("N") and self.nova:
             reply = await self.nova.handle_callback(aid, action, cq.get("message", {}).get("message_id"))
@@ -108,6 +117,8 @@ class OwnerBot:
         dex = self.dex
         if pending := self._pop_pending():
             aid, action = pending["approval_id"], pending["action"]
+            if action == "pixel_edit" and self.pixel:
+                return await self.pixel.revise(aid, text) or None
             if action == "nova_caption" and self.nova:
                 return await self.nova.set_caption(aid, text) or None
             if action == "price":
@@ -132,6 +143,10 @@ class OwnerBot:
         if cmd == "/shadow_off":
             dex.db.kv_set("shadow_mode", False)
             return "Shadow mode OFF: Dex replies on its own (approvals still come to you)."
+        if cmd in ("/design", "/logo") and self.pixel:
+            if cmd == "/logo":
+                return "Send your logo as a file (📎 → File) with the caption /logo."
+            return await self.pixel.request(text.split(None, 1)[1] if len(text.split(None, 1)) > 1 else "")
         if cmd == "/offer_story" and self.nova:
             return await self.nova.offer_story() or None
         if cmd == "/status":

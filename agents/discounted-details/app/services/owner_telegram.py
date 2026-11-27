@@ -119,6 +119,12 @@ class TelegramOwner:
             return await self._send(caption, markup)
         return None
 
+    async def send_document(self, url: str, caption: str, filename: str = "") -> None:
+        """Full-quality file (Telegram fetches it from our /media URL)."""
+        res = await self._call("sendDocument", {"chat_id": self.chat_id, "document": url, "caption": caption[:1024]})
+        if not res.get("ok"):
+            await self._send(f"{caption}\n{url}")
+
     async def send_to(self, chat_id: int, text: str) -> None:
         await self._call("sendMessage", {"chat_id": chat_id, "text": text})
 
@@ -143,6 +149,9 @@ class FakeOwner:
 
     async def mark_decided(self, message_id, text) -> None:
         self._add(kind="edit", target=message_id, text=text)
+
+    async def send_document(self, url, caption, filename="") -> None:
+        self._add(kind="document", text=caption, media=[url])
 
     async def edit_buttons(self, message_id, text, buttons) -> None:
         self._add(kind="edit_buttons", target=message_id, text=text, buttons=buttons)

@@ -9,6 +9,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -r
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
+# Chromium for Pixel's design renderer (shared path so the non-root user can run it too)
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/pw
+RUN .venv/bin/playwright install --with-deps chromium && chmod -R a+rX /opt/pw
 
 COPY app ./app
 COPY docs ./docs

@@ -16,6 +16,7 @@ COMMANDS = [("today", "Today's jobs"), ("tomorrow", "Tomorrow's jobs"), ("status
             ("pause", "Stop customer replies"), ("resume", "Restart customer replies"),
             ("shadow_on", "Approve every reply first"), ("shadow_off", "Let Dex reply on its own"),
             ("offer_story", "Story image of your current offer"),
+            ("design", "Pixel: design a poster or thumbnail"),
             ("help", "How to use Dex")]
 
 

@@ -13,6 +13,7 @@ Dex answers Discounted Details' Instagram and Messenger DMs (through Composio), 
 | `app/services/` | Sheets CRM, pricing, maps, calendar, scheduling, Composio, DM sender, Telegram, channels |
 | `app/jobs/` | DM poller, scheduled jobs, APScheduler wiring |
 | `app/nova/` | Nova, the social media agent: photo intake, privacy blur, captions, Story/post publishing |
+| `app/pixel/` | Pixel, the graphic designer: `/design` requests, HTML designs rendered in locked-down Chromium |
 | `app/webhooks/telegram.py` | Owner bot: buttons, commands, typed replies |
 | `scripts/` | Sheet bootstrap, Telegram setup, Human Agent test, OnePageCRM import |
 | `tests/` | Unit and end-to-end tests with fakes (`tests/fakes.py`) |

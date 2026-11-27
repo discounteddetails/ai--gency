@@ -74,6 +74,15 @@ def build(settings=None):
         bot.nova = Nova(dex, Vision(runner.client, s.ANTHROPIC_MODEL), MediaHost(s.NOVA_MEDIA_DIR, s.PUBLIC_BASE_URL),
                         bot_token=s.TELEGRAM_BOT_TOKEN.get_secret_value(), ig_user_id=s.IG_USER_ID,
                         page_id=s.FB_PAGE_ID, batch_seconds=s.NOVA_BATCH_SECONDS)
+    if s.PIXEL_ENABLED:
+        from app.nova.media import MediaHost
+        from app.pixel.designer import Designer
+        from app.pixel.render import Renderer
+        from app.pixel.service import Pixel
+
+        host = bot.nova.host if bot.nova else MediaHost(s.NOVA_MEDIA_DIR, s.PUBLIC_BASE_URL)
+        bot.pixel = Pixel(dex, Designer(runner.client, s.ANTHROPIC_MODEL), Renderer(s.CHROMIUM_PATH or None), host,
+                          s.PIXEL_ASSETS_DIR, bot_token=s.TELEGRAM_BOT_TOKEN.get_secret_value(), nova=bot.nova)
     return dex, runner, jobs, poller, bot
 
 
@@ -148,7 +157,8 @@ def create_app() -> FastAPI:
     @app.get("/media/{name}")
     async def media(name: str):
         """Nova's processed photos/videos, fetched by Instagram, Facebook and Telegram. Names are unguessable."""
-        p = bot.nova.host.path(name) if bot.nova else None
+        host = bot.nova.host if bot.nova else (bot.pixel.host if bot.pixel else None)
+        p = host.path(name) if host else None
         if not p:
             raise HTTPException(status_code=404)
         return FileResponse(p, media_type="video/mp4" if p.suffix == ".mp4" else "image/jpeg")

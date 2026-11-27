@@ -5,7 +5,7 @@
 <style>
 /* VOICE everyday, playful: a management-sim office
    IDEA a pixel-art office floor at dusk where every AI agent in the company has its own desk
-   PICTURE the office scene, Dex at desk 1 and Nova at desk 2, two empty desks waiting for hires
+   PICTURE the office scene, Dex at desk 1, Nova at desk 2, Pixel at desk 3, one empty desk waiting for a hire
    COLOUR plum-black ground, warm wood, mint for agents, coral sunset accent
    TYPE Pixelify Sans for game text + Inter for reading
    LAYOUT title row with roster chips, scene full width, then agent profile + activity side by side; stacked on phone */
@@ -71,7 +71,7 @@ code{background:var(--panel2);padding:1px 5px;font-size:14px;overflow-wrap:anywh
 
 <section class="band" style="padding-block:20px">
   <div class="stage" id="stage">
-    <canvas id="c" width="400" height="200" role="img" aria-label="Pixel-art office with four desks. Dex the customer and booking agent works at the first desk and Nova the social media agent at the second; the other two are open."></canvas>
+    <canvas id="c" width="400" height="200" role="img" aria-label="Pixel-art office with four desks. Dex the customer and booking agent works at the first desk, Nova the social media agent at the second and Pixel the graphic designer at the third; the last desk is open."></canvas>
     <div class="bubble" id="bubble" aria-live="polite"></div>
   </div>
 </section>
@@ -81,7 +81,7 @@ code{background:var(--panel2);padding:1px 5px;font-size:14px;overflow-wrap:anywh
     <article class="card" id="profile"></article>
     <aside class="card">
       <h2>Activity</h2>
-      <p class="note" id="feednote">Sample activity showing what Dex and Nova do. These aren't real customers.</p>
+      <p class="note" id="feednote">Sample activity showing what Dex, Nova and Pixel do. These aren't real customers.</p>
       <ul class="feed" id="feed"></ul>
     </aside>
   </div>
@@ -108,7 +108,16 @@ const AGENTS=[
    never:['Show customer faces or private info','Give an exact location (the city is fine)','Use the word “perfect”','Put prices in captions','Reply to comments','Turn your photos into Reels'],
    tools:['Telegram (from you)','Instagram + Facebook (via Composio)','Claude vision','Google Sheets'],
    docs:[['Nova spec','https://github.com/discounteddetails/ai--gency/blob/claude/autonomous-agent-design-vtbcag/agents/discounted-details/docs/NOVA_SPEC.md']],
-   demo:[['Got 9 photos and 2 videos from you on Telegram','Got 11 files 📸'],['Blurred a license plate and a house number in 2 photos','Blurred 1 plate, 1 house number'],['Sent you a Story preview: on the way to a job in Buda','Story preview sent'],['You approved: on-the-way Story is live on Instagram + Facebook','Story is live ✅'],['Picked 3 befores and 3 afters for a Tahoe slideshow and wrote the caption','Before/after post ready'],['Post approved and scheduled for 6:30 PM tonight','Scheduled for 6:30 PM']]}
+   demo:[['Got 9 photos and 2 videos from you on Telegram','Got 11 files 📸'],['Blurred a license plate and a house number in 2 photos','Blurred 1 plate, 1 house number'],['Sent you a Story preview: on the way to a job in Buda','Story preview sent'],['You approved: on-the-way Story is live on Instagram + Facebook','Story is live ✅'],['Picked 3 befores and 3 afters for a Tahoe slideshow and wrote the caption','Before/after post ready'],['Post approved and scheduled for 6:30 PM tonight','Scheduled for 6:30 PM']]},
+  {id:'pixel',desk:2,name:'Pixel',role:'Graphic Designer',status:'Live · you pick every design',
+   look:{skin:'#8d5a3d',hair:'#1b1424',shirt:'#3b9bff'},
+   summary:'Designs offer posters and video thumbnails in your blues, black and white. Ask in Telegram, pick one of two designs, and hand it to Nova to post.',
+   does:['Makes offer posters in feed (4:5) and Story (9:16) sizes at once','Makes YouTube thumbnails and Reel covers from your videos','Sends two different designs every time, and changes them when you type what to fix','Uses your real photos, never fake ones','Puts your logo on everything once you send it','Hands finished posters to Nova with one tap'],
+   asks:['Which design to use','What to change','Posting (through Nova’s approval card)'],
+   never:['Invent prices, deals or dates','Use the word “perfect”','Show addresses or customer names','Post anything by itself'],
+   tools:['Telegram (from you)','Claude','Chromium (renders designs)','Nova (to post)'],
+   docs:[['Pixel spec','https://github.com/discounteddetails/ai--gency/blob/claude/autonomous-agent-design-vtbcag/agents/discounted-details/docs/PIXEL_SPEC.md']],
+   demo:[['You asked for a Black Friday poster with 2 photos','New design request 🎨'],['Sent you 2 designs: Bold photo and Clean graphic','2 designs ready'],['You picked Clean graphic. Sent the feed and Story files','Design delivered ✅'],['Handed the poster to Nova for your approval','Sent to Nova 📤'],['Made a YouTube thumbnail: INTERIOR RESCUE','Thumbnail ready']]}
 ];
 const IDEAS=[['Reviews agent','Asks happy customers for a Facebook review after each job and tracks who left one.'],['Bookkeeping agent','Tracks revenue, expenses and mileage for taxes.'],['Ads agent','Runs small local Facebook and Instagram ads and reports what each lead cost.']];
 const DESKS=4,DY=150,deskX=i=>20+i*96;
@@ -199,7 +208,7 @@ function show(id){
 // activity: live from the Sheet's Activity tab (Google Sheets connector); sample until connected
 const feed=document.getElementById('feed'),note=document.getElementById('feednote');
 const GS='Google Sheets',QUERY={spreadsheetId:'1qA9A3eG4F00axogqyzATvI2ByFWZIBn8MHpjhN5LA8Q',range:'Activity!A2:D16'};
-const SAMPLE_NOTE="Sample activity showing what Dex and Nova do. These aren't real customers.";
+const SAMPLE_NOTE="Sample activity showing what Dex, Nova and Pixel do. These aren't real customers.";
 const fmt=d=>d.toLocaleTimeString([], {hour:'numeric',minute:'2-digit'});
 const when=d=>new Date().toDateString()==d.toDateString()?fmt(d):d.toLocaleDateString([], {month:'short',day:'numeric'})+', '+fmt(d);
 let mode='sample',live=[],bi=0,step=0;
@@ -232,7 +241,7 @@ function parse(p){
 function renderLive(rows){
   mode='live';live=rows;bi=0;
   if(!rows.length){const li=document.createElement('li');li.className='empty';
-    li.textContent='Nothing yet. Activity shows up here as Dex and Nova work.';feed.replaceChildren(li);bubble.textContent='Waiting for work…';return}
+    li.textContent='Nothing yet. Activity shows up here as your agents work.';feed.replaceChildren(li);bubble.textContent='Waiting for work…';return}
   feed.replaceChildren(...rows.slice(0,10).map(r=>item(r.agent,r.text,r.d)));say(rows[0].agent,rows[0].short);
 }
 (async()=>{

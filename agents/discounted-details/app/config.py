@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     NOVA_ENABLED: bool = True
     NOVA_MEDIA_DIR: str = "/data/media"
     NOVA_BATCH_SECONDS: int = 180
+    PIXEL_ENABLED: bool = True
+    PIXEL_ASSETS_DIR: str = "/data/pixel"
+    CHROMIUM_PATH: str = ""  # blank = Playwright's own Chromium (installed in the Docker image)
 
     # Google
     GOOGLE_SERVICE_ACCOUNT_JSON: SecretStr
