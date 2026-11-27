@@ -17,7 +17,7 @@ from app.core import Dex
 log = logging.getLogger(__name__)
 _TASKS: set = set()
 HELP = ("Commands:\n/today · /tomorrow — jobs\n/status — what's pending\n/pause · /resume — stop/start replies\n"
-        "/shadow_on · /shadow_off — approve every reply first\n/offer_story — Nova makes a Story image of your current offer\n/design <what you need> — Pixel designs posters and thumbnails (attach photos with /design as the caption)\n/logo — send your logo as a file with this caption\nOr type anything, e.g. \"who's booked Saturday\" or "
+        "/shadow_on · /shadow_off — approve every reply first\n/offer_story — Nova makes a Story image of your current offer\n/design <what you need> — Pixel designs posters and thumbnails (attach photos with /design as the caption)\n/logo — send your logo as a file with this caption\n/style — what Pixel remembers about your taste (/style forget to reset)\nOr type anything, e.g. \"who's booked Saturday\" or "
         "\"promo 15% off interiors for dog owners\".\nApprovals: tap the buttons, or type yes A17 / no A17 / edit A17 <msg>.")
 TYPED = re.compile(r"^\s*(yes|y|ok|👍|no|n|edit)\b\s*(?:a?(\d+))?\s*(.*)$", re.IGNORECASE | re.DOTALL)
 
@@ -147,6 +147,8 @@ class OwnerBot:
             if cmd == "/logo":
                 return "Send your logo as a file (📎 → File) with the caption /logo."
             return await self.pixel.request(text.split(None, 1)[1] if len(text.split(None, 1)) > 1 else "")
+        if cmd == "/style" and self.pixel:
+            return self.pixel.forget_style() if "forget" in text.lower() else self.pixel.style_text()
         if cmd == "/offer_story" and self.nova:
             return await self.nova.offer_story() or None
         if cmd == "/status":

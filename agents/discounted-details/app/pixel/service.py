@@ -62,6 +62,76 @@ class Pixel:
         r["data"] = json.loads(r.pop("data_json"))
         return r
 
+    # ------------------------------------------------------------------ taste memory
+    def taste(self) -> dict[str, Any]:
+        t = self.dex.db.kv_get("pixel_taste") or {}
+        return {"rules": t.get("rules", []), "feedback": t.get("feedback", []), "liked": t.get("liked", [])}
+
+    def _store_taste(self, t: dict[str, Any]) -> None:
+        self.dex.db.kv_set("pixel_taste", t)
+
+    def remember_rule(self, rule: str) -> str:
+        t = self.taste()
+        rule = rule.strip().rstrip(".")
+        if rule and rule not in t["rules"]:
+            t["rules"] = (t["rules"] + [rule])[-15:]
+            self._store_taste(t)
+        self.dex.activity.log("Pixel", f"Will remember: {rule}", "Noted your style rule 📝")
+        return f"📝 Got it. Pixel will always: {rule}"
+
+    def _remember_feedback(self, text: str) -> None:
+        t = self.taste()
+        t["feedback"] = (t["feedback"] + [text.strip()[:200]])[-15:]
+        self._store_taste(t)
+
+    def _remember_liked(self, jid: str, data: dict[str, Any], used: bool = False) -> None:
+        opt = data["options"][data.get("picked", 0)]
+        page = opt["pages"][0]
+        t = self.taste()
+        liked = [d for d in t["liked"] if d.get("job") != jid]
+        thumb = self.dir / "taste" / f"{jid}.jpg"
+        thumb.parent.mkdir(parents=True, exist_ok=True)
+        src = self.host.path(page["file"])
+        if src:  # keep our own small copy: the posted files are cleaned up after a week
+            from PIL import Image
+            img = Image.open(src)
+            img.thumbnail((640, 640))
+            img.convert("RGB").save(thumb, "JPEG", quality=80)
+        liked.insert(0, {"job": jid, "kind": data.get("kind"), "label": opt["label"], "format": page["format"],
+                         "html": page["html"][:8000], "request": data.get("request", "")[:200], "used": used,
+                         "at": clock.now().isoformat()})
+        # posted designs first, then newest; keep 8 (sorts are stable)
+        liked = sorted(sorted(liked, key=lambda d: d.get("at", ""), reverse=True), key=lambda d: not d.get("used"))[:8]
+        t["liked"] = liked
+        self._store_taste(t)
+
+    def _taste_for_design(self) -> dict[str, Any]:
+        t = self.taste()
+        for d in t["liked"][:3]:
+            p = self.dir / "taste" / f"{d['job']}.jpg"
+            if p.is_file():
+                d["jpeg"] = p.read_bytes()
+        return t
+
+    def style_text(self) -> str:
+        t = self.taste()
+        if not (t["rules"] or t["feedback"] or t["liked"]):
+            return "Pixel hasn't learned your style yet. Pick designs, ask for changes, or tell her with\n/design remember: <rule>"
+        out = ["🎨 What Pixel remembers about your style:"]
+        if t["rules"]:
+            out += ["", "Rules:"] + [f"• {r}" for r in t["rules"]]
+        if t["feedback"]:
+            out += ["", "Changes you've asked for:"] + [f"• {f}" for f in t["feedback"][-8:]]
+        if t["liked"]:
+            out += ["", "Designs you liked:"] + [f"• {d['label']} ({d['kind']}{', posted' if d.get('used') else ''})"
+                                                 for d in t["liked"]]
+        out += ["", "/style forget clears it all."]
+        return "\n".join(out)
+
+    def forget_style(self) -> str:
+        self._store_taste({})
+        return "🧽 Pixel forgot your saved style. She'll start fresh (brand colors still apply)."
+
     @property
     def logo(self) -> Path | None:
         p = self.dir / "logo.png"
@@ -100,6 +170,9 @@ class Pixel:
     async def request(self, text: str) -> str | None:
         """/design <what you want> with no photos."""
         text = text.strip()
+        if text.lower().startswith("remember"):
+            rule = text[len("remember"):].lstrip(" :,-")
+            return self.remember_rule(rule) if rule else "Tell Pixel what to remember, e.g. /design remember: big Anton headlines"
         if not text:
             return ("🎨 Tell Pixel what you need, e.g.\n/design Black Friday poster, $20 off any detail, book by "
                     "11/30\nAttach photos (or a video for a thumbnail) with /design ... as the caption.")
@@ -185,7 +258,8 @@ class Pixel:
                       for a in data["assets"] if Path(a["path"]).is_file()]
         try:
             result = await self.designer.design(data["request"], assets, has_logo=bool(self.logo),
-                                                previous=previous, feedback=feedback)
+                                                previous=previous, feedback=feedback,
+                                                taste=self._taste_for_design())
         except Exception as e:
             log.exception("design failed")
             self._save(jid, "failed", data)
@@ -242,6 +316,7 @@ class Pixel:
                 return "That option isn't there anymore."
             data["picked"] = i
             self._save(jid, "picked", data)
+            self._remember_liked(jid, data)
             opt = data["options"][i]
             for p in opt["pages"]:
                 await self.dex.owner.send_document(self.host.url(p["file"]),
@@ -282,6 +357,7 @@ class Pixel:
         if not job or job["status"] not in ("choosing", "picked"):
             return f"{jid} can't be changed now."
         data = job["data"]
+        self._remember_feedback(feedback)
         self._save(jid, "designing", data)
         await self.dex.owner.notify(f"🎨 Updating {jid}…", urgent=True)
         await self._design(jid, data, previous=self._previous(data), feedback=feedback)
@@ -304,6 +380,7 @@ class Pixel:
         post = {"media": [feed] if feed else [story], "story_media": [story] if story else [], "caption": caption,
                 "facts": facts, "offer": offer, "warnings": [], "targets": targets,
                 "created_at": clock.now().isoformat(), "from_design": jid}
+        self._remember_liked(jid, data, used=True)
         nova._save(cid, "post", "pending", post)
         await nova._log(cid, "post", "pending", post)
         await nova._post_card(cid, post, problem)

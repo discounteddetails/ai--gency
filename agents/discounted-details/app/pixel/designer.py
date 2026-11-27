@@ -73,7 +73,8 @@ class Designer:
         self.client, self.model = client, model
 
     async def design(self, request: str, assets: list[dict[str, Any]], *, has_logo: bool,
-                     previous: dict[str, Any] | None = None, feedback: str = "") -> dict[str, Any]:
+                     previous: dict[str, Any] | None = None, feedback: str = "",
+                     taste: dict[str, Any] | None = None) -> dict[str, Any]:
         """assets: [{name, desc, preview_jpeg}]. previous/feedback for revisions."""
         asset_lines = "\n".join(f"- asset:{a['name']} — {a['desc']}" for a in assets) or \
             "- (no photos: design with color, shapes and type only)"
@@ -83,6 +84,19 @@ class Designer:
                      else "LOGO: none yet. Set 'DISCOUNTED DETAILS' as a small clean wordmark instead.")
         content: list[dict[str, Any]] = [{"type": "text", "text": BRIEF.format(logo_line=logo_line,
                                                                                 assets=asset_lines)}]
+        if taste and (taste.get("rules") or taste.get("liked")):
+            lines = ["OWNER'S TASTE (learned from what they picked, changed and told you; follow it):"]
+            lines += [f"- Rule: {r}" for r in taste.get("rules", [])]
+            lines += [f"- They asked for: {f}" for f in taste.get("feedback", [])[-10:]]
+            lines.append("Option A MUST closely follow the style of their liked designs below (layout, colors, type "
+                         "treatment). Option B can try something new but must still obey every rule.")
+            content.append({"type": "text", "text": "\n".join(lines)})
+            for i, d in enumerate(taste.get("liked", [])[:3], 1):
+                tag = "they posted this one" if d.get("used") else "they picked this one"
+                content.append({"type": "text", "text": f"LIKED DESIGN {i} ({d.get('kind')}, “{d.get('label')}”, {tag}). "
+                                                        f"Its HTML for {d.get('format')}:\n{d.get('html', '')[:6000]}"})
+                if d.get("jpeg"):
+                    content.append(_img(d["jpeg"]))
         for a in assets:
             content += [{"type": "text", "text": f"asset:{a['name']}"}, _img(a["preview_jpeg"])]
         if previous:

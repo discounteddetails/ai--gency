@@ -17,6 +17,7 @@ COMMANDS = [("today", "Today's jobs"), ("tomorrow", "Tomorrow's jobs"), ("status
             ("shadow_on", "Approve every reply first"), ("shadow_off", "Let Dex reply on its own"),
             ("offer_story", "Story image of your current offer"),
             ("design", "Pixel: design a poster or thumbnail"),
+            ("style", "What Pixel remembers about your taste"),
             ("help", "How to use Dex")]
 
 

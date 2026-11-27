@@ -31,9 +31,9 @@ class FakeDesigner:
     def __init__(self):
         self.calls = []
 
-    async def design(self, request, assets, *, has_logo, previous=None, feedback=""):
+    async def design(self, request, assets, *, has_logo, previous=None, feedback="", taste=None):
         self.calls.append({"request": request, "assets": [a["name"] for a in assets], "has_logo": has_logo,
-                           "previous": previous, "feedback": feedback})
+                           "previous": previous, "feedback": feedback, "taste": taste})
         page = lambda f, c: {"format": f, "html": f"<style>body{{background:{c}}}</style><h1>$20 OFF</h1>"}  # noqa
         return {"kind": "poster", "title": "Black Friday poster", "formats": ["feed", "story"],
                 "options": [{"label": "Bold photo", "pages": [page("feed", "#123"), page("story", "#123")]},
@@ -177,3 +177,54 @@ async def test_real_render_blocks_network_and_sizes(tmp_path):
         assert out.getpixel((5, 5))[2] > 150  # the local photo loaded (blue)
     finally:
         await r.close()
+
+
+
+async def test_pixel_remembers_taste(frozen, tmp_path):
+    w, px, nova, _ = make(tmp_path)
+    assert "hasn't learned" in await w.bot.handle_text("/style")
+    assert "always: dark navy background" in await w.bot.handle_text("/design remember: dark navy background")
+    await px.request("Black Friday poster")
+    await settle(px)
+    assert px.designer.calls[-1]["taste"]["rules"] == ["dark navy background"]
+    await px.handle_callback("D0001", "pick1")  # likes "Clean graphic"
+    await px.handle_callback("D0001", "edit")
+    await w.bot.handle_text("make the price huge")
+    await px.handle_callback("D0001", "pick0")
+    await px.handle_callback("D0001", "nova")  # posted -> strongest signal
+    await px.request("Cyber Monday poster")
+    await settle(px)
+    taste = px.designer.calls[-1]["taste"]
+    assert taste["feedback"] == ["make the price huge"]
+    assert taste["liked"][0]["used"] and taste["liked"][0]["job"] == "D0001"
+    assert taste["liked"][0].get("jpeg")  # a saved picture of the liked design goes to the designer
+    text = await w.bot.handle_text("/style")
+    assert "dark navy background" in text and "make the price huge" in text and "posted" in text
+    assert "forgot" in await w.bot.handle_text("/style forget")
+    assert px.taste() == {"rules": [], "feedback": [], "liked": []}
+
+
+async def test_designer_prompt_includes_taste():
+    from app.pixel.designer import Designer
+
+    class Client:
+        def __init__(self):
+            self.messages = self
+            self.sent = None
+
+        async def create(self, **kw):
+            self.sent = kw
+            from types import SimpleNamespace
+            body = ('{"kind":"poster","title":"t","formats":["feed"],"options":[{"label":"x","pages":'
+                    '[{"format":"feed","html":"<h1>x</h1>"}]}]}')
+            return SimpleNamespace(stop_reason="end_turn", content=[SimpleNamespace(type="text", text=body)])
+
+    c = Client()
+    await Designer(c, "m").design("poster", [], has_logo=False, taste={
+        "rules": ["navy background"], "feedback": ["bigger price"],
+        "liked": [{"kind": "poster", "label": "Bold", "format": "feed", "html": "<h1>LIKED</h1>", "used": True,
+                   "jpeg": jpeg()}]})
+    blocks = c.sent["messages"][0]["content"]
+    text = " ".join(b.get("text", "") for b in blocks)
+    assert "Rule: navy background" in text and "bigger price" in text and "<h1>LIKED</h1>" in text
+    assert "they posted this one" in text and any(b["type"] == "image" for b in blocks)
