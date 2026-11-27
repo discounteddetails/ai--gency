@@ -31,6 +31,22 @@ class ToolContext:
     kind: str = "reply"  # 'proactive' in scheduled tasks
 
 
+NUMERIC_NONE = {"standard_total"}
+
+
+def _blank_to_none(key: str, value: Any) -> Any:
+    """Tools use "" / 0 for 'unknown' (strict schemas can't be nullable); handlers expect None."""
+    if isinstance(value, str) and not value.strip():
+        return None
+    if key in NUMERIC_NONE and value == 0:
+        return None
+    if isinstance(value, dict) and key == "vehicle":
+        v = {k: (None if (isinstance(x, str) and not x.strip()) or (k == "year" and x == 0) else x)
+             for k, x in value.items()}
+        return v if v.get("make") or v.get("model") else None
+    return value
+
+
 def _date(v: str | None) -> date | None:
     return date.fromisoformat(v) if v else None
 
@@ -42,6 +58,7 @@ async def run_tool(name: str, args: dict[str, Any], ctx: ToolContext) -> tuple[s
         fn = HANDLERS[name]
     except KeyError:
         return json.dumps({"error": "UNKNOWN_TOOL"}), True
+    args = {k: _blank_to_none(k, v) for k, v in args.items()}
     try:
         result = await fn(ctx, **args)
         return json.dumps(result, default=str), False

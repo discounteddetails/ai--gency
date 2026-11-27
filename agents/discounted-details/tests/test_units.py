@@ -109,7 +109,9 @@ def test_tool_schemas_strict_and_complete():
         sch = t["input_schema"]
         assert t["strict"] is True and sch["additionalProperties"] is False
         assert set(sch["required"]) == set(sch["properties"])
-        assert "minimum" not in json.dumps(sch) and "maximum" not in json.dumps(sch)
+        dumped = json.dumps(sch)
+        assert "minimum" not in dumped and "maximum" not in dumped
+        assert "anyOf" not in dumped and '"null"' not in dumped  # API allows few union-typed params in strict mode
     assert json.dumps(TOOLS) == json.dumps(TOOLS)  # deterministic -> cache-stable
 
 

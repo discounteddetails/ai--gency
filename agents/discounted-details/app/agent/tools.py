@@ -1,4 +1,4 @@
-"""Tool definitions for Claude (PRD §7.5). Strict schemas; order and content are deterministic so the prompt
+"""Tool definitions for Claude (PRD §7.5). Strict schemas with no optional or union-typed fields; order and content are deterministic so the prompt
 cache prefix stays stable."""
 
 from __future__ import annotations
@@ -11,8 +11,9 @@ ADDONS = {"type": "array", "items": {"type": "string", "enum": ["pet_hair", "sta
 CONDITION = {"type": "string", "enum": ["standard", "worse", "bad", "terrible"],
              "description": "Interior/Full only; use standard for Exterior."}
 S = {"type": "string"}
-S_NULL = {"type": ["string", "null"]}
-I_NULL = {"type": ["integer", "null"]}
+# No nullable/union types: the strict-tool grammar allows only a few. "Unknown" is "" (strings) or 0 (integers).
+S_NULL = {"type": "string", "description": "Empty string if unknown or not applicable."}
+I_NULL = {"type": "integer", "description": "0 if unknown or not applicable."}
 
 VEHICLE = {"type": "object", "additionalProperties": False,
            "properties": {"year": I_NULL, "make": S, "model": S, "color": S_NULL, "size_class": SIZE},
@@ -28,14 +29,14 @@ def _tool(name: str, description: str, props: dict[str, Any]) -> dict[str, Any]:
 TOOLS: list[dict[str, Any]] = [
     _tool("quote_price",
           "Calculate the exact price, travel fee and job length. Call before stating any total. Prices come only "
-          "from this tool. Pass the address (ZIP/city is fine) to include the travel fee, or null without it.",
+          "from this tool. Pass the address (ZIP/city is fine) to include the travel fee, or an empty string without it.",
           {"service": SERVICE, "size_class": SIZE, "addons": ADDONS, "condition": CONDITION, "address": S_NULL}),
     _tool("check_service_area",
           "Driving distance from Kyle, TX and travel fee for an address. Never estimate distance yourself.",
           {"address": S}),
     _tool("find_available_slots",
           "Open appointment times on the owner's calendar for this job, drive time included. Offer ONLY slots "
-          "returned here. Dates are YYYY-MM-DD or null.",
+          "returned here. Dates are YYYY-MM-DD or empty strings.",
           {"service": SERVICE, "size_class": SIZE, "addons": ADDONS, "condition": CONDITION, "address": S,
            "earliest_date": S_NULL, "latest_date": S_NULL,
            "time_of_day": {"type": "string", "enum": ["morning", "afternoon", "evening", "any"]},
@@ -47,10 +48,10 @@ TOOLS: list[dict[str, Any]] = [
            "service": SERVICE, "addons": ADDONS, "condition": CONDITION, "notes": S_NULL}),
     _tool("update_customer",
           "Save what you learn about the current customer right away (name, phone, email, address, notes, tags, "
-          "vehicle). Use null for anything unknown.",
+          "vehicle). Use empty strings for anything unknown, and a vehicle with empty make if there is none.",
           {"first_name": S_NULL, "last_name": S_NULL, "phone": S_NULL, "email": S_NULL, "address": S_NULL,
            "notes_append": S_NULL, "tags_add": {"type": "array", "items": S},
-           "vehicle": {"anyOf": [VEHICLE, {"type": "null"}]}}),
+           "vehicle": VEHICLE}),
     _tool("create_follow_up",
           "Add a to-do with a complete ready-to-send message. sender 'owner' when no channel is open. "
           "Never for Do Not Contact customers. due_iso is an ISO datetime.",
@@ -74,7 +75,7 @@ TOOLS: list[dict[str, Any]] = [
           {"reason": S}),
     _tool("send_reply",
           "The ONLY way to message a customer; text outside this tool is never delivered. Replies on the "
-          "customer's channel. customer_id is null for the current customer (required in scheduled tasks).",
+          "customer's channel. customer_id is an empty string for the current customer (required in scheduled tasks).",
           {"text": S, "customer_id": S_NULL}),
     _tool("reply_to_owner", "Owner command mode only: reply to the owner in Telegram. Keep it short.",
           {"text": S}),
@@ -85,7 +86,7 @@ TOOLS: list[dict[str, Any]] = [
            "limit": {"type": "integer", "description": "1 to 500"}}),
     _tool("get_schedule", "Owner command mode: booked jobs between two dates (YYYY-MM-DD, inclusive).",
           {"date_from": S, "date_to": S}),
-    _tool("list_follow_ups", "Owner command mode: follow-ups filtered by status and sender (null = any).",
+    _tool("list_follow_ups", "Owner command mode: follow-ups filtered by status and sender (empty string = any).",
           {"status": S_NULL, "sender": S_NULL}),
 ]
 
