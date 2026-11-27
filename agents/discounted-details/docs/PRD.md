@@ -819,7 +819,7 @@ Use this only if Composio's delay, cost, limits or missing Instagram Human Agent
 | home_base_address | Kyle, TX 78640 |
 | rebook_days | 90 |
 | facebook_review_url | https://www.facebook.com/profile.php?id=61584982506383&sk=reviews |
-| payment_methods | (blank; owner fills in, e.g. "Cash, Zelle, Cash App, Venmo") |
+| payment_methods | Cash, Cash App, Venmo, Apple Pay |
 | booking_prep_message | (blank) |
 | owner_takeover_hours | 12 |
 | extra_busy_calendar_ids | (blank) |
@@ -1124,7 +1124,7 @@ New leads overnight: 2 (1 booked)
 | A15 | When the owner replies manually in the inbox, the agent stays quiet on that thread for 12 hours | env `OWNER_TAKEOVER_HOURS` |
 | A16 | Launch in shadow mode for 7 days | env / `SHADOW OFF` |
 | A17 | Spanish messages are answered in Spanish | AGENT_INSTRUCTIONS §10 |
-| A18 | Payment is collected after the job; methods are unknown until the owner fills in Settings `payment_methods` | Settings |
+| A18 | Payment is collected after the job. **Confirmed:** Cash, Cash App, Venmo, Apple Pay. | Settings |
 | A23 | **Confirmed by the owner:** condition surcharge is one per job, Interior and Full only; worse/bad/terrible add 30/60/90 minutes; customers are told the owner will confirm any price change before starting if the condition differs on arrival; mold and biohazards are custom quotes | Services rows / AGENT_INSTRUCTIONS §1.1 |
 | A22 | Only the owner's primary Google Calendar (discounteddetails@gmail.com) blocks time. The old "Todoist" and "Holidays in United States" calendars are ignored (owner confirmed they don't use Todoist anymore). | Settings `extra_busy_calendar_ids` |
 | A21 | The Human Agent window is used only for owner-approved replies to the customer's own inquiry, never for proactive messages | Code (FR-H4) |
