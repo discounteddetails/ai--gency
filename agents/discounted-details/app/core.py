@@ -58,6 +58,7 @@ class Dex:
         self.debouncer = Debouncer(cfg.debounce_seconds, self._process_thread)
         self._thread_locks: dict[str, asyncio.Lock] = {}
         self.activity = Activity(crm.store)
+        self.on_business_change = None  # set by Atlas to track approvals on its tasks
 
     # ------------------------------------------------------------------ flags
     @property
@@ -281,9 +282,11 @@ class Dex:
         "reply": [[("✅ Send", "approve"), ("✏️ Edit", "edit"), ("❌ Skip", "decline")]],
         "late_reply": [[("✅ Send", "approve"), ("✏️ Edit", "edit"), ("❌ Skip", "decline")]],
         "question": [[("💬 Answer", "answer"), ("🙋 I'll reply myself", "self")]],
+        "business_change": [[("✅ Approve", "approve"), ("❌ Decline", "decline")]],
     }
     ICON = {"discount": "💲", "custom_quote": "📐", "cancel": "🛑", "reschedule": "🔁", "complaint": "⚠️",
-            "bulk_message": "📣", "reply": "✉️", "late_reply": "🕑", "question": "❓"}
+            "bulk_message": "📣", "reply": "✉️", "late_reply": "🕑", "question": "❓",
+            "business_change": "🏢"}
 
     async def create_approval(self, type_: str, customer: dict[str, Any] | None, *, summary: str,
                               customer_request: str = "", draft: str = "", job_id: str = "",
@@ -356,6 +359,15 @@ class Dex:
             if decision not in ("approve", "edit"):
                 return f"{aid}: promo cancelled."
             return await self._send_bulk(p, text if decision == "edit" else p.get("draft", ""))
+        if type_ == "business_change":  # proposed by Atlas: prices, promos, settings
+            if decision != "approve":
+                if self.on_business_change:
+                    await self.on_business_change(aid, p, approved=False)
+                return f"{aid}: declined. Nothing changed."
+            done = await self.apply_business_changes(p.get("changes", []))
+            if self.on_business_change:
+                await self.on_business_change(aid, p, approved=True)
+            return f"{aid}: done. " + "; ".join(done)
         if type_ == "question" and decision == "self":
             return f"{aid}: OK, you'll answer them yourself."
         if type_ == "cancel" and decision == "approve":
@@ -373,6 +385,27 @@ class Dex:
             await self.runner.run_approval_result(thread_id, aid, type_,
                                                   "denied" if decision == "decline" else "approved", p, text)
         return f"{aid}: done."
+
+    async def apply_business_changes(self, changes: list[dict[str, Any]]) -> list[str]:
+        """Writes owner-approved changes to the Sheet (the single source of truth every agent reads)."""
+        done = []
+        for ch in changes:
+            tab, field, value = ch.get("tab"), ch.get("field") or "value", ch.get("value")
+            if tab == "Settings":
+                key = ch["key"]
+                ok = await self.crm._run(self.crm.store.update_where, "Settings", {"key": key}, {"value": value})
+                if not ok:
+                    await self.crm._run(self.crm.store.append, "Settings", {"key": key, "value": value,
+                                                                            "description": "Added by Atlas"})
+                done.append(f"{key} = {value}")
+            elif tab == "Services" and field in ("price", "duration_min", "active", "includes", "name"):
+                match = {"service_key": ch["key"]}
+                if ch.get("size_class"):
+                    match["size_class"] = ch["size_class"]
+                ok = await self.crm._run(self.crm.store.update_where, "Services", match, {field: value})
+                done.append(f"{ch['key']} {ch.get('size_class', '')} {field} = {value}" + ("" if ok else " (not found)"))
+        self.crm.invalidate_cache()
+        return done
 
     async def _send_bulk(self, p: dict[str, Any], text: str) -> str:
         sent = queued = 0

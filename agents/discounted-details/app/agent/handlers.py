@@ -31,6 +31,7 @@ class ToolContext:
     turn_id: str = ""
     owner_replies: list[str] = field(default_factory=list)
     kind: str = "reply"  # 'proactive' in scheduled tasks
+    quiet: bool = False  # Atlas delegations: collect owner replies instead of posting them
 
 
 NUMERIC_NONE = {"standard_total"}
@@ -236,7 +237,8 @@ async def send_reply(ctx, text, customer_id):
 
 async def reply_to_owner(ctx, text):
     ctx.owner_replies.append(text)
-    await ctx.dex.owner.notify(text, urgent=True)
+    if not ctx.quiet:
+        await ctx.dex.owner.notify(text, urgent=True)
     return {"ok": True}
 
 

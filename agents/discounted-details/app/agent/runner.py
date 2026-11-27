@@ -69,8 +69,10 @@ class AgentRunner:
             await self._run("APPROVAL_RESULT", thread, customer, "approval_result", "\n".join(body_lines),
                             history_key=thread_id, state=state)
 
-    async def run_owner_command(self, text: str) -> list[str]:
-        ctx = await self._run("OWNER_COMMAND", None, None, "owner_command", text, history_key="owner")
+    async def run_owner_command(self, text: str, *, quiet: bool = False) -> list[str]:
+        """quiet=True (Atlas delegating): Dex's replies come back to Atlas instead of going to Telegram."""
+        ctx = await self._run("OWNER_COMMAND", None, None, "owner_command", text,
+                              history_key="atlas_dex" if quiet else "owner", quiet=quiet)
         return ctx.owner_replies if ctx else []
 
     async def run_scheduled_task(self, customer: dict[str, Any], task: str) -> None:
@@ -135,7 +137,7 @@ class AgentRunner:
         )
 
     async def _run(self, mode: str, thread, customer, body_tag: str, body: str, *, history_key: str,
-                   state: TurnState | None = None, kind: str = "reply") -> ToolContext | None:
+                   state: TurnState | None = None, kind: str = "reply", quiet: bool = False) -> ToolContext | None:
         dex = self.dex
         who = dex.display_name(customer) if customer else "owner"
         if not self._budget_ok():
@@ -146,7 +148,7 @@ class AgentRunner:
         state.shadow = dex.shadow
         state.verified_amounts |= promo_amounts(active_promo(await dex.crm.get_settings()))  # prices in the offer
         ctx = ToolContext(dex=dex, mode=mode, customer=customer, thread=thread, state=state,
-                          turn_id=uuid.uuid4().hex[:12], kind=kind)
+                          turn_id=uuid.uuid4().hex[:12], kind=kind, quiet=quiet)
         key = self._history_key(history_key)
         messages = dex.db.load_history(key, MAX_TURNS_PER_EPOCH)
         user_msg = {"role": "user", "content": [{"type": "text",

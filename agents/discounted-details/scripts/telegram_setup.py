@@ -18,6 +18,7 @@ COMMANDS = [("today", "Today's jobs"), ("tomorrow", "Tomorrow's jobs"), ("status
             ("offer_story", "Story image of your current offer"),
             ("design", "Pixel: design a poster or thumbnail"),
             ("style", "What Pixel remembers about your taste"),
+            ("tasks", "Atlas: open tasks"), ("brief", "Atlas: morning brief now"),
             ("help", "How to use Dex")]
 
 

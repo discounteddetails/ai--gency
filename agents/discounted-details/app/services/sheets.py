@@ -36,6 +36,14 @@ class MemoryStore:
     def append(self, tab: str, row: dict[str, Any]) -> None:
         self.rows[tab].append({h: row.get(h, "") for h in self.headers[tab]})
 
+    def update_where(self, tab: str, match: dict[str, Any], fields: dict[str, Any]) -> bool:
+        hit = False
+        for r in self.rows[tab]:
+            if all(str(r.get(k)) == str(v) for k, v in match.items()):
+                r.update({k: v for k, v in fields.items() if k in self.headers[tab]})
+                hit = True
+        return hit
+
     def insert_top(self, tab: str, row: dict[str, Any]) -> None:
         self.rows[tab].insert(0, {h: row.get(h, "") for h in self.headers[tab]})
 
@@ -96,6 +104,23 @@ class GspreadStore:
         headers = TABS[tab]
         self._retry(lambda: self._sheet(tab).append_row([_cell(row.get(h)) for h in headers],
                                                         value_input_option="USER_ENTERED"))
+
+    def update_where(self, tab: str, match: dict[str, Any], fields: dict[str, Any]) -> bool:
+        """Update every row whose columns equal `match` (e.g. Services by service_key + size_class)."""
+        ws = self._sheet(tab)
+        rows = self._retry(lambda: ws.get_all_values())
+        if not rows:
+            return False
+        headers = rows[0]
+        updates = []
+        for i, r in enumerate(rows[1:], start=2):
+            rec = dict(zip(headers, r, strict=False))
+            if all(str(rec.get(k, "")) == str(v) for k, v in match.items()):
+                updates += [{"range": f"{_a1(headers.index(k) + 1)}{i}", "values": [[_cell(v)]]}
+                            for k, v in fields.items() if k in headers]
+        if updates:
+            self._retry(lambda: ws.batch_update(updates, value_input_option="USER_ENTERED"))
+        return bool(updates)
 
     def insert_top(self, tab: str, row: dict[str, Any]) -> None:
         """Newest first (row 2), so readers can fetch a small fixed range. RAW keeps timestamps as text."""

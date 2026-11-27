@@ -278,6 +278,11 @@ class Jobs:
 
     # ------------------------------------------------------------ summary / housekeeping
     async def daily_summary(self) -> str:
+        text = await self.summary_text()
+        await self.dex.owner.notify(text, urgent=True)
+        return text
+
+    async def summary_text(self) -> str:
         dex, now = self.dex, clock.now()
         today = await jobs_text(dex, now.date())
         due = [f for f in await dex.crm.list_follow_ups(status="Open", sender="owner")
@@ -291,9 +296,7 @@ class Jobs:
                  + (f" → {dex.cfg.sheet_url}" if dex.cfg.sheet_url and due else ""),
                  "Pending approvals: " + (", ".join(f"{a['approval_id']} {a['type']}" for a in pending) or "none"),
                  f"New leads overnight: {len(new_leads)} ({booked} booked)"]
-        text = "\n".join(lines)
-        await dex.owner.notify(text, urgent=True)
-        return text
+        return "\n".join(lines)
 
     async def retention_cleanup(self) -> None:
         self.dex.db.prune_events(timedelta(days=7))

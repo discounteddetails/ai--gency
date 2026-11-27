@@ -5,7 +5,7 @@
 <style>
 /* VOICE everyday, playful: a management-sim office
    IDEA a pixel-art office floor at dusk where every AI agent in the company has its own desk
-   PICTURE the office scene, Dex at desk 1, Nova at desk 2, Pixel at desk 3, one empty desk waiting for a hire
+   PICTURE the office scene, Dex at desk 1, Nova at desk 2, Pixel at desk 3, Atlas the manager at desk 4
    COLOUR plum-black ground, warm wood, mint for agents, coral sunset accent
    TYPE Pixelify Sans for game text + Inter for reading
    LAYOUT title row with roster chips, scene full width, then agent profile + activity side by side; stacked on phone */
@@ -71,7 +71,7 @@ code{background:var(--panel2);padding:1px 5px;font-size:14px;overflow-wrap:anywh
 
 <section class="band" style="padding-block:20px">
   <div class="stage" id="stage">
-    <canvas id="c" width="400" height="200" role="img" aria-label="Pixel-art office with four desks. Dex the customer and booking agent works at the first desk, Nova the social media agent at the second and Pixel the graphic designer at the third; the last desk is open."></canvas>
+    <canvas id="c" width="400" height="200" role="img" aria-label="Pixel-art office with four desks. Dex the customer and booking agent works at the first desk, Nova the social media agent at the second, Pixel the graphic designer at the third and Atlas the operations manager at the fourth."></canvas>
     <div class="bubble" id="bubble" aria-live="polite"></div>
   </div>
 </section>
@@ -81,7 +81,7 @@ code{background:var(--panel2);padding:1px 5px;font-size:14px;overflow-wrap:anywh
     <article class="card" id="profile"></article>
     <aside class="card">
       <h2>Activity</h2>
-      <p class="note" id="feednote">Sample activity showing what Dex, Nova and Pixel do. These aren't real customers.</p>
+      <p class="note" id="feednote">Sample activity showing what your agents do. These aren't real customers.</p>
       <ul class="feed" id="feed"></ul>
     </aside>
   </div>
@@ -117,7 +117,16 @@ const AGENTS=[
    never:['Invent prices, deals or dates','Use the word “perfect”','Show addresses or customer names','Post anything by itself'],
    tools:['Telegram (from you)','Claude','Chromium (renders designs)','Nova (to post)'],
    docs:[['Pixel spec','https://github.com/discounteddetails/ai--gency/blob/claude/autonomous-agent-design-vtbcag/agents/discounted-details/docs/PIXEL_SPEC.md']],
-   demo:[['You asked for a Black Friday poster with 2 photos','New design request 🎨'],['Sent you 2 designs: Bold photo and Clean graphic','2 designs ready'],['You picked Clean graphic. Sent the feed and Story files','Design delivered ✅'],['Handed the poster to Nova for your approval','Sent to Nova 📤'],['Made a YouTube thumbnail: INTERIOR RESCUE','Thumbnail ready']]}
+   demo:[['You asked for a Black Friday poster with 2 photos','New design request 🎨'],['Sent you 2 designs: Bold photo and Clean graphic','2 designs ready'],['You picked Clean graphic. Sent the feed and Story files','Design delivered ✅'],['Handed the poster to Nova for your approval','Sent to Nova 📤'],['Made a YouTube thumbnail: INTERIOR RESCUE','Thumbnail ready']]},
+  {id:'atlas',desk:3,name:'Atlas',role:'Operations Manager',status:'Live · your main contact',
+   look:{skin:'#d9a066',hair:'#5a3a22',shirt:'#e8f2ff'},
+   summary:'Your operations manager. Give Atlas a goal in Telegram and he decides who does what, delegates to Dex, Nova and Pixel, tracks it, checks the work and reports back.',
+   does:['Turns your goals into work for Dex, Nova and Pixel','Tracks multi-step work in the Sheet’s Tasks tab','Checks results and catches problems before you do','Sends the 6:30 AM brief with a health check and Monday improvement ideas','Keeps every agent on the same facts from the Google Sheet'],
+   asks:['Any price or service change','Any promo, discount or offer','Business settings and policies','Anything that costs money','Big decisions'],
+   never:['Change prices or offers without your OK','Spend money','Do the other agents’ jobs himself','Promise a discount you didn’t approve'],
+   tools:['Dex','Nova','Pixel','Google Sheets','Telegram (to you)','Claude'],
+   docs:[['Atlas spec','https://github.com/discounteddetails/ai--gency/blob/claude/autonomous-agent-design-vtbcag/agents/discounted-details/docs/ATLAS_SPEC.md'],['Atlas instructions','https://github.com/discounteddetails/ai--gency/blob/claude/autonomous-agent-design-vtbcag/agents/discounted-details/docs/ATLAS_INSTRUCTIONS.md']],
+   demo:[['New goal from you: fill next week’s calendar','New goal 🧭'],['Asked Dex for open slots and warm leads','Delegated to Dex'],['Asked Pixel for a midweek-offer poster','Delegated to Pixel'],['Opened task T0003: Fill next week','Task opened'],['Asked you to approve a $15 Tuesday offer','Needs your OK 🙋'],['Morning brief sent: 2 issues, 1 idea','Brief sent ☀️']]}
 ];
 const IDEAS=[['Reviews agent','Asks happy customers for a Facebook review after each job and tracks who left one.'],['Bookkeeping agent','Tracks revenue, expenses and mileage for taxes.'],['Ads agent','Runs small local Facebook and Instagram ads and reports what each lead cost.']];
 const DESKS=4,DY=150,deskX=i=>20+i*96;
@@ -208,7 +217,7 @@ function show(id){
 // activity: live from the Sheet's Activity tab (Google Sheets connector); sample until connected
 const feed=document.getElementById('feed'),note=document.getElementById('feednote');
 const GS='Google Sheets',QUERY={spreadsheetId:'1qA9A3eG4F00axogqyzATvI2ByFWZIBn8MHpjhN5LA8Q',range:'Activity!A2:D16'};
-const SAMPLE_NOTE="Sample activity showing what Dex, Nova and Pixel do. These aren't real customers.";
+const SAMPLE_NOTE="Sample activity showing what your agents do. These aren't real customers.";
 const fmt=d=>d.toLocaleTimeString([], {hour:'numeric',minute:'2-digit'});
 const when=d=>new Date().toDateString()==d.toDateString()?fmt(d):d.toLocaleDateString([], {month:'short',day:'numeric'})+', '+fmt(d);
 let mode='sample',live=[],bi=0,step=0;

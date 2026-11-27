@@ -86,6 +86,10 @@ def build(settings=None):
     from app.router import Router
 
     bot.router = Router(runner.client, s.ANTHROPIC_MODEL, pixel=bot.pixel, nova=bot.nova, dex=dex)
+    if s.ATLAS_ENABLED:
+        from app.atlas.agent import Atlas
+
+        bot.atlas = Atlas(dex, runner.client, s.ANTHROPIC_MODEL, pixel=bot.pixel, nova=bot.nova, jobs=jobs)
     return dex, runner, jobs, poller, bot
 
 
@@ -106,7 +110,8 @@ def create_app() -> FastAPI:
     from app.jobs.comment_watcher import CommentWatcher
 
     comments = CommentWatcher(dex, ig_user_id=s.IG_USER_ID, page_id=s.FB_PAGE_ID)
-    sched = build_scheduler(jobs, poller, s.POLL_SECONDS, s.POLL_SECONDS_NIGHT, nova=bot.nova, comments=comments)
+    sched = build_scheduler(jobs, poller, s.POLL_SECONDS, s.POLL_SECONDS_NIGHT, nova=bot.nova, comments=comments,
+                            atlas=bot.atlas)
 
     async def register_telegram() -> None:
         """Point the Telegram bot at this server on every start (idempotent)."""

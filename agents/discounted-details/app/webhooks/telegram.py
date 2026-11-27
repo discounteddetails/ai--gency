@@ -17,7 +17,7 @@ from app.core import Dex
 log = logging.getLogger(__name__)
 _TASKS: set = set()
 HELP = ("Commands:\n/today · /tomorrow — jobs\n/status — what's pending\n/pause · /resume — stop/start replies\n"
-        "/shadow_on · /shadow_off — approve every reply first\n/offer_story — Nova makes a Story image of your current offer\n/design <what you need> — Pixel designs posters and thumbnails (attach photos with /design as the caption)\n/logo — send your logo as a file with this caption\n/style — what Pixel remembers about your taste (/style forget to reset)\nOr type anything, e.g. \"who's booked Saturday\" or "
+        "/shadow_on · /shadow_off — approve every reply first\n/offer_story — Nova makes a Story image of your current offer\n/design <what you need> — Pixel designs posters and thumbnails (attach photos with /design as the caption)\n/logo — send your logo as a file with this caption\n/style — what Pixel remembers about your taste (/style forget to reset)\n/tasks — Atlas's open tasks · /brief — the morning brief now\nJust type to talk to Atlas (your operations manager). Start with Dex, Nova, or Pixel, to go straight to one of them.\nOr type anything, e.g. \"who's booked Saturday\" or "
         "\"promo 15% off interiors for dog owners\".\nApprovals: tap the buttons, or type yes A17 / no A17 / edit A17 <msg>.")
 TYPED = re.compile(r"^\s*(yes|y|ok|👍|no|n|edit)\b\s*(?:a?(\d+))?\s*(.*)$", re.IGNORECASE | re.DOTALL)
 
@@ -29,7 +29,8 @@ class OwnerBot:
         self.secret = secret
         self.nova = None  # set by main when Nova is enabled
         self.pixel = None  # set by main when Pixel is enabled
-        self.router = None  # set by main: sends plain messages to Dex, Nova or Pixel
+        self.router = None  # set by main: messages addressed to Dex, Nova or Pixel by name
+        self.atlas = None  # set by main: everything else goes to Atlas, the operations manager
 
     # ---------------- pending typed input (Edit / Set price / Answer) ----------------
     def _set_pending(self, approval_id: str, action: str) -> None:
@@ -179,6 +180,15 @@ class OwnerBot:
                         return await dex.decide(aid, "price", price=int(price.group(1)))
                     return await dex.decide(aid, "approve")
                 return await dex.decide(aid, "decline")
+        if cmd == "/tasks" and self.atlas:
+            return await self.atlas.tasks_text()
+        if cmd == "/brief" and self.atlas:
+            await self.atlas.daily_brief()
+            return None
+        from app.router import NAMES
+        if self.atlas and not NAMES.match(text):
+            await self.atlas.handle(text, self.router.context() if self.router else None)
+            return None
         if self.router:
             r = await self.router.route(text)
             reply = await self._dispatch(r)

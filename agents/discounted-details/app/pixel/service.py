@@ -197,6 +197,29 @@ class Pixel:
         self.debouncer.add("design", {"kind": "text", "text": text})
         return None
 
+    async def start(self, text: str, formats: list[str] | None = None, use_recent_photos: bool = False) -> str:
+        """Atlas delegating a design: returns the job id right away; the options arrive in Telegram as usual."""
+        import asyncio
+        jid = f"D{self.dex.db.next_counter('pixel_jobs'):04d}"
+        jdir = self.dir / "jobs" / jid
+        jdir.mkdir(parents=True, exist_ok=True)
+        assets = []
+        if use_recent_photos and self.nova:
+            posts = [c for c in self.nova.list(kind="post") if c["data"].get("media")]
+            for k, name in enumerate(posts[-1]["data"]["media"][:4] if posts else [], 1):
+                if p := self.host.path(name):
+                    assets.append(await self._asset(jdir, f"photo{k}", p.read_bytes(), "recent job photo"))
+        data = {"request": text, "assets": [{k: a[k] for k in ("name", "desc", "path")} for a in assets],
+                "round": 0, "created_at": clock.now().isoformat(),
+                "formats": formats or requested_formats(text), "from": "atlas"}
+        self._save(jid, "designing", data)
+        self.dex.activity.log("Pixel", f"Started designing for Atlas: {text[:120]}", "Designing… 🎨")
+        t = asyncio.get_running_loop().create_task(self._design(jid, data, assets))
+        self._bg = getattr(self, "_bg", set())
+        self._bg.add(t)
+        t.add_done_callback(self._bg.discard)
+        return jid
+
     async def _set_logo(self, msg: dict[str, Any]) -> None:
         fid = (msg.get("document") or {}).get("file_id") or (msg.get("photo") or [{}])[-1].get("file_id")
         if not fid:

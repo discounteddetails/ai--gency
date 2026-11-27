@@ -37,7 +37,7 @@ async def poll_if_due(poller, last_poll: dict[str, float], day_seconds: int, nig
 
 
 def build_scheduler(jobs: Jobs, poller: DMPoller, poll_seconds: int, poll_seconds_night: int,
-                    nova=None, comments=None) -> AsyncIOScheduler:
+                    nova=None, comments=None, atlas=None) -> AsyncIOScheduler:
     s = AsyncIOScheduler(timezone=clock.TZ, job_defaults={"coalesce": True, "max_instances": 1,
                                                           "misfire_grace_time": 300})
 
@@ -60,7 +60,9 @@ def build_scheduler(jobs: Jobs, poller: DMPoller, poll_seconds: int, poll_second
         return run
 
     s.add_job(safe(poll), IntervalTrigger(seconds=poll_seconds), id="dm_poll")
-    s.add_job(safe(jobs.daily_summary), CronTrigger(hour=6, minute=30), id="daily_summary")
+    # Atlas's brief includes Dex's summary, so only one morning message goes out
+    s.add_job(safe(atlas.daily_brief if atlas else jobs.daily_summary), CronTrigger(hour=6, minute=30),
+              id="daily_summary")
     s.add_job(safe(jobs.send_due_agent_followups), CronTrigger(hour="7-19", minute="*/15"), id="followups")
     s.add_job(safe(jobs.quote_checkins), CronTrigger(minute=5), id="quote_checkins")
     s.add_job(safe(jobs.owner_followup_digest), CronTrigger(hour=10, minute=0), id="owner_followup_digest")
