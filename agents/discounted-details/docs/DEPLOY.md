@@ -75,6 +75,7 @@ At **platform.claude.com**:
    | `SLOT_SIGNING_KEY` | any random 64 characters |
    | `PUBLIC_BASE_URL` | from step 4 |
    | `SHADOW_MODE_DEFAULT` | `true` |
+   | `RAILWAY_RUN_UID` | `0` (lets Dex write to the `/data` volume; Railway volumes are owned by root) |
 
 6. Deploy. Then open `PUBLIC_BASE_URL/healthz`. It should show `{"ok": true}`.
 

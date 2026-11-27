@@ -81,8 +81,11 @@ class DMPoller:
                 n = 0
                 for ch in ("instagram", "messenger"):
                     n += await self._poll_channel(ch)
+                first = not self.db.kv_get("poller_initialized", False)
                 self.db.kv_set("poll_fail_streak", 0)
                 self.db.kv_set("poller_initialized", True)
+                if first or n:
+                    log.info("poll ok: %s new event(s)%s", n, " (first run, state recorded)" if first else "")
                 return n
             except Exception as e:
                 streak = int(self.db.kv_get("poll_fail_streak", 0)) + 1

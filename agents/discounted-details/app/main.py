@@ -75,13 +75,40 @@ def create_app() -> FastAPI:
     handler = logging.StreamHandler()
     handler.setFormatter(JsonFormatter())
     logging.basicConfig(level=s.LOG_LEVEL, handlers=[handler], force=True)
+    logging.getLogger("apscheduler").setLevel(logging.WARNING)
     dex, runner, jobs, poller, bot = build(s)
     sched = build_scheduler(jobs, poller, s.POLL_SECONDS, s.POLL_SECONDS_NIGHT)
+
+    async def register_telegram() -> None:
+        """Point the Telegram bot at this server on every start (idempotent)."""
+        import httpx
+
+        from scripts.telegram_setup import COMMANDS
+
+        base = f"https://api.telegram.org/bot{s.TELEGRAM_BOT_TOKEN.get_secret_value()}/"
+        url = s.PUBLIC_BASE_URL.rstrip("/") + "/webhooks/telegram"
+        log = logging.getLogger("dex")
+        try:
+            async with httpx.AsyncClient(timeout=15) as h:
+                r = await h.post(base + "setWebhook", json={
+                    "url": url, "secret_token": s.TELEGRAM_WEBHOOK_SECRET.get_secret_value(),
+                    "allowed_updates": ["message", "callback_query"]})
+                log.info("telegram setWebhook ok=%s %s", r.json().get("ok"), r.json().get("description", ""))
+                await h.post(base + "setMyCommands",
+                             json={"commands": [{"command": c, "description": d} for c, d in COMMANDS]})
+        except Exception as e:
+            log.error("telegram registration failed: %s", e)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         sched.start()
+        await register_telegram()
         logging.getLogger("dex").info("Dex started (shadow=%s)", dex.shadow)
+        try:
+            await dex.owner.notify("👋 Dex is online. Test mode is ON: every reply comes to you here first. "
+                                   "Send /help to see what I can do.", urgent=True)
+        except Exception:
+            logging.getLogger("dex").exception("startup notify failed")
         yield
         sched.shutdown(wait=False)
 

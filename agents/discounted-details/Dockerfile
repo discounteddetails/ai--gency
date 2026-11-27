@@ -12,6 +12,7 @@ COPY docs ./docs
 COPY scripts ./scripts
 
 RUN useradd --create-home dex && mkdir -p /data && chown dex /data
+# On Railway set RAILWAY_RUN_UID=0 so the root-owned /data volume is writable.
 USER dex
 ENV PATH="/app/.venv/bin:$PATH" DB_PATH=/data/agent.db
 
