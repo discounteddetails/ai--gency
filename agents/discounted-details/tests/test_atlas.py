@@ -144,3 +144,12 @@ async def test_atlas_gets_team_status_for_design_feedback(frozen, tmp_path):
     first = brain.calls[0]["messages"][-1]["content"][0]["text"]
     assert "pixel_current_design" in first and "D0001" in first
     assert px.designer.calls[-1]["formats"] == ["story"]
+
+
+def test_atlas_prompt_has_communication_rules():
+    from app.atlas.agent import system_prompt
+    p = system_prompt()
+    for must in ("📌 Summary", "✅ Completed", "⚠️ Needs attention", "➡️ Next steps", "1–3 sentences",
+                 "Never call something done without verifying it", "plain text"):
+        assert must in p
+    assert "## Approval rules (hard)" in p and "delegate_to_dex" in p  # responsibilities unchanged
