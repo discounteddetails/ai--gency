@@ -21,7 +21,11 @@ The agent is an always-on service that:
 3. **Offers real open time slots from Google Calendar and books appointments itself,** with no overlaps and with drive time included.
 4. **Runs the CRM in a Google Sheet:** customers, vehicles, jobs, message log, follow-ups, approvals and opt-outs.
 5. **Gets the owner's approval by SMS** for discounts and custom quotes, cancellations and reschedules, group promos and complaint replies.
-6. **Queues ready-to-send messages for the owner** whenever the 24-hour window has closed (reminders, review requests, rebook nudges), and texts the owner a daily summary.
+6. **Keeps in touch after the 24-hour window closes**, in three ways (§6.8):
+   - Owner-approved replies on Instagram and Messenger for up to 7 days, using Meta's Human Agent tag.
+   - Texts to customers who opted in: reminders, review requests and rebook nudges.
+   - A ready-to-send message list for the owner, for everyone else.
+7. **Texts the owner a daily summary.**
 
 **This replaces OnePageCRM.** The Google Sheet becomes the system of record (decision D1, §15.4).
 
@@ -38,7 +42,7 @@ The agent is an always-on service that:
 | Owner time saved | Owner-estimated hours per week on messaging | Cut by at least 50% |
 | Reasonable cost | Total monthly running cost (hosting, LLM, Twilio, Maps) | Under $60 per month |
 
-**Non-goals for V1:** SMS to customers, deposits, invoices or payments, before-and-after photos (a separate agent handles these), replying to comments or reviews, multiple technicians, website booking widgets.
+**Non-goals for V1:** email to customers, deposits, invoices or payments, before-and-after photos (a separate agent handles these), replying to comments or reviews, multiple technicians, website booking widgets.
 
 ## 3. Users and personas
 
@@ -71,10 +75,12 @@ The agent is an always-on service that:
 | S15 | Daily summary SMS to the owner |
 | S16 | Auto-completing past jobs so the separate photo agent and review requests can trigger |
 | S17 | Shadow mode for the first week: every reply goes to the owner for approval first |
+| S18 | 7-day Human Agent replies on Instagram and Messenger: drafted by the agent, sent only after the owner approves (§6.8) |
+| S19 | Customer texting through the Twilio number: opt-in capture, STOP handling, quiet hours, two-way text conversations (§6.8) |
 
 ### 4.2 Out of scope (V1), see §14
 
-SMS or email to customers, deposits, invoices, payments, photo handling, multiple staff, public comment replies, a web dashboard, voice calls, Google Business Profile messages, migrating historical data from OnePageCRM (optional one-time CSV import only, build step 21).
+Email to customers, deposits, invoices, payments, photo handling, multiple staff, public comment replies, a web dashboard, voice calls, Google Business Profile messages, migrating historical data from OnePageCRM (optional one-time CSV import only, build step 21).
 
 ## 5. Workflows
 
@@ -112,7 +118,8 @@ Customer DM ─► Meta webhook ─► verify signature ─► dedupe ─► log
 |---|---|---|
 | Customer DM | Meta webhook (`messages`) | Customer conversation (§5.1) |
 | Owner manual reply in the Page or IG inbox | Meta webhook (`message_echoes` / `is_echo` with an `app_id` that isn't ours) | Pause the thread for 12 hours (S14). Log it. |
-| Owner SMS | Twilio inbound webhook | Approval reply or owner command |
+| Owner SMS (from `OWNER_PHONE`) | Twilio inbound webhook | Approval reply or owner command |
+| Customer SMS (from any other number) | Twilio inbound webhook | Customer conversation on channel `sms` (§6.8) |
 | Schedule | APScheduler cron | §5.5 jobs |
 | Owner edits the Sheet (for example, sets a Job to `Completed` or a follow-up to `Sent`) | Read by scheduled jobs (polling, no webhook) | Picked up at the next scheduled run |
 
@@ -134,11 +141,11 @@ Customer DM ─► Meta webhook ─► verify signature ─► dedupe ─► log
 5. The runtime carries out the approved action (moves or deletes the event, applies the price override, sends the bulk message), updates the Approvals row, then runs the agent in `APPROVAL_RESULT` mode to message the customer.
 6. **Timeouts:** if there's no reply within 2 hours between 7 AM and 9 PM, the runtime re-pings once. If the customer's window has less than 2 hours left, it sends "⏰ A17 window closes in Xh". If the approval is unanswered when the window closes, it stays pending. Once decided, the customer message becomes an owner follow-up.
 
-Approval types: `discount`, `custom_quote`, `cancel`, `reschedule`, `complaint`, `bulk_message`, `reply` (shadow mode only).
+Approval types: `discount`, `custom_quote`, `cancel`, `reschedule`, `complaint`, `bulk_message`, `reply` (shadow mode only), `late_reply` (a DM sent 24 hours to 7 days after the customer's last message, §6.8).
 
 ### 5.4 Owner SMS commands
 
-The owner texts the Twilio number from their personal cell (`OWNER_PHONE`). Messages from any other number are ignored and logged.
+The owner texts the Twilio number from their personal cell (`OWNER_PHONE`). Messages from any other number are customer texts and are handled as described in §6.8.
 
 | Command | Behavior |
 |---|---|
@@ -158,9 +165,10 @@ Fixed commands are parsed in code first; the LLM handles only free text.
 | Job | When | What |
 |---|---|---|
 | `daily_summary` | 6:30 AM daily | Owner SMS: today's jobs, number of owner follow-ups due today (and the Sheet link), pending approvals, last night's new leads |
-| `send_due_agent_followups` | Every 15 min, 7 AM–8 PM | Due follow-ups with `sender=agent` are sent with `send_reply` if the window is open. If the window is closed, they're switched to `sender=owner`. |
+| `send_due_agent_followups` | Every 15 min, 7 AM–8 PM | Due follow-ups with `sender=agent` are sent by DM if the 24-hour window is open, otherwise by text if SMS is allowed and it's within quiet hours (§6.8). If neither, they're switched to `sender=owner`. They never go out through the Human Agent window. |
 | `quote_checkins` | Hourly | Leads who received a quote and have no booking, whose last inbound message was 18–22 hours ago, with no check-in sent and not Do Not Contact: the agent writes and sends one check-in. If none was sent and 72 hours have passed, an owner follow-up is created. After 14 days with no booking, the lead is marked `Lost`. |
-| `reminders` | 9:00 AM daily | For tomorrow's jobs: send the reminder if the window is open, otherwise mark the reminder follow-up as due for the owner. These are already created at booking. |
+| `reminders` | 9:00 AM daily | For tomorrow's jobs: send the reminder by DM if the window is open, otherwise by text if SMS is allowed, otherwise mark the reminder follow-up as due for the owner. These are already created at booking. |
+| `release_queued_texts` | 9:00 AM Mon–Sat, 12:00 PM Sun | Sends texts that were held because they were due during quiet hours |
 | `auto_complete_jobs` | 9:00 PM daily | Jobs with status `Booked` whose end time has passed become `Completed` (`completed_by = auto`). The owner can change this to `No-show` or `Cancelled` in the Sheet. |
 | `post_job_followups` | 9:05 PM daily | For each newly completed job, create a `review_request` follow-up due the next day at 10 AM (or send now if the window is open), and a `rebook` follow-up due 90 days later. Skipped for Do Not Contact customers and for customers who already got a review request in the last 180 days. |
 | `approval_reminders` | Every 15 min | Re-pings and window warnings (§5.3) |
@@ -179,8 +187,14 @@ Fixed commands are parsed in code first; the LLM handles only free text.
 - **FR-M4:** Debounce: wait 20 seconds after the latest inbound message on a thread, then process all unprocessed messages together. Each new message resets the timer.
 - **FR-M5:** Text only. For attachments (images, audio, video, stickers), pass a placeholder like `[customer sent an image]` to the agent, and log the attachment URL in the Messages tab.
 - **FR-M6:** Track `last_inbound_at` per thread. The window is open while `now < last_inbound_at + 24h − 15min`, a 15-minute safety margin.
-- **FR-M7:** Outbound sends use `messaging_type: "RESPONSE"`. Never use message tags in V1.
-- **FR-M8:** Before every send, re-check in code: window open, customer not Do Not Contact, thread not paused, agent not globally paused, length ≤ 900 characters, guardrail lint passes (§6.6).
+- **FR-M7:** Inside 24 hours, outbound sends use `messaging_type: "RESPONSE"`. Between 24 hours and 7 days, the only allowed DMs are owner-approved replies, sent with `messaging_type: "MESSAGE_TAG"` and `tag: "HUMAN_AGENT"` (§6.8). No other message tags are used.
+- **FR-M8:** Before every send, re-check in code:
+  - the channel is allowed for this message (§6.8),
+  - the customer is not Do Not Contact,
+  - the thread is not paused,
+  - the agent is not globally paused,
+  - the length limit holds (900 characters for DMs, 320 for texts),
+  - the guardrail lint passes (§6.6).
 - **FR-M9:** Echo detection: on `is_echo: true` where `app_id` ≠ `META_APP_ID`, set `paused_until = now + OWNER_TAKEOVER_HOURS` (default 12) for that thread, and log the owner's message to the Messages tab with `direction = owner_manual`.
 - **FR-M10:** Never subscribe to `feed`, `comments` or `mentions` webhook fields.
 - **FR-M11:** Customer identity is keyed on `(channel, sender_id)`, where `sender_id` is the PSID for Messenger and the IGSID for Instagram. On first contact, fetch the profile name (Messenger: `GET /{psid}?fields=first_name,last_name`; Instagram: `GET /{igsid}?fields=name,username`), best-effort. If a phone number given later matches an existing customer, link the new channel ID to that customer (`Customers.messenger_psid` / `instagram_igsid`) instead of creating a duplicate.
@@ -288,8 +302,12 @@ The prompt asks the model to behave. The code makes sure. Each check returns `GU
 | Absolute promises | Case-insensitive regex blocklist: `guarantee`, `guaranteed`, `100%`, `perfect`, `flawless`, `like new`, `brand new`, `completely remove`, `all stains`, `every stain`, `good as new`, `showroom` |
 | Price integrity | Every `$NNN` amount in an outgoing message must equal a price, add-on, travel fee or total returned by a pricing tool **in this conversation**, or an approved override. Otherwise it's blocked with "unverified price $X". |
 | Time integrity | A message containing "you're all set," "confirmed" or "booked" is only allowed if `book_appointment` succeeded in this turn or an approved approval exists |
-| Length | 900 characters or fewer |
-| Window | Open (FR-M6) |
+| Length | 900 characters or fewer for DMs, 320 for texts |
+| Window | DM: open (FR-M6), or Human Agent window with owner approval for replies only (§6.8) |
+| SMS consent | Texts only to customers with `sms_opt_in = TRUE` and no `sms_opted_out_at` |
+| SMS quiet hours | Texts that aren't direct replies to a customer's text are held outside 9 AM–8 PM Mon–Sat and 12–8 PM Sun |
+| SMS identification | The first text to a customer each day starts with "Discounted Details:" (added by code if missing) |
+| SMS opt-out footer | Rebook reminders and promotional texts end with "Reply STOP to opt out." (added by code if missing) |
 | Do Not Contact / paused | Blocked |
 | Per-turn cap | At most 2 `send_reply` calls per turn |
 | Complaint mode | Exact template only (FR-A3) |
@@ -299,7 +317,46 @@ The prompt asks the model to behave. The code makes sure. Each check returns `GU
 
 - **FR-D1:** Before the LLM runs, a keyword pre-filter catches exact opt-out messages: `stop`, `unsubscribe`, `stop messaging me`, `remove me`, `not interested` (whole message, trimmed, case-insensitive). These set DNC immediately and send the fixed closing message once.
 - **FR-D2:** Softer phrasings are left to the LLM, which calls `mark_do_not_contact`.
+- **FR-D4:** An SMS STOP (or STOPALL, UNSUBSCRIBE, CANCEL, END, QUIT) sets `sms_opted_out_at` and stops all texts. It doesn't set full DNC on its own. Twilio's Advanced Opt-Out also blocks further texts at the carrier level (error 21610 on send).
 - **FR-D3:** DNC is checked in code on every send and every follow-up creation. A DNC customer who messages again is logged and the owner is alerted ("DNC customer X messaged again: '…'"). The agent doesn't reply. The owner can clear DNC in the Sheet.
+
+### 6.8 Reaching customers after the 24-hour window
+
+**Channel decision.** Code applies this in one function, `choose_channel(customer, message_kind, now)`, and every send path uses it.
+
+| Message kind | 1st choice | 2nd choice | 3rd choice | Last resort |
+|---|---|---|---|---|
+| Reply to what the customer asked (inbound message, approval result, answered escalation) | DM, if inside 24 hours | Text, if SMS allowed | DM with `HUMAN_AGENT` tag, if inside 7 days, **after owner approval** | Owner follow-up |
+| Proactive (reminder, quote check-in, review request, rebook, promo) | DM, if inside 24 hours | Text, if SMS allowed and inside quiet hours (otherwise held until they open) | — (never Human Agent) | Owner follow-up |
+
+**7-day Human Agent replies (S18)**
+- **FR-H1:** If a reply is due between 24 hours and 7 days (minus a 30-minute margin) after the customer's last DM, `send_reply` doesn't send it. It creates a `late_reply` approval and texts the owner:
+  ```
+  [DD] A23 LATE REPLY to Maria G (IG, 2 days ago):
+  "Hi Maria! The owner confirmed we can fit your Tacoma in Thu at 1:30 PM. Want me to book it?"
+  YES A23 to send, EDIT A23 <text>, NO A23 to skip
+  ```
+- **FR-H2:** On `YES` or `EDIT`, the runtime sends the exact approved text with `messaging_type: "MESSAGE_TAG"` and `tag: "HUMAN_AGENT"`. Owner-written `EDIT` text from any approval type can be sent this way without a second approval.
+- **FR-H3:** If the 7 days run out before the owner answers, the approval expires and the message becomes an owner follow-up.
+- **FR-H4:** The tag is never used for proactive or bulk messages. This is enforced in code: only `late_reply` approvals and owner-edited approval results may use it.
+- **FR-H5:** The Meta app must have the **Human Agent** permission approved in App Review, for both Messenger and Instagram (§9.1). Until it's approved, the `HUMAN_AGENT_ENABLED` setting stays `false` and late replies go straight to owner follow-ups.
+
+**Customer texting (S19)**
+- **FR-T1 Consent:** after a booking, the agent asks for text consent with the fixed wording in AGENT_INSTRUCTIONS §4.1. A yes is stored as:
+  - `sms_opt_in = TRUE`
+  - `sms_opt_in_at` (timestamp)
+  - `sms_opt_in_text` (the customer's exact words)
+  - `sms_opt_in_source` (`instagram`, `messenger` or `sms`)
+
+  No consent means no texts, ever. The owner can also set consent by hand in the Sheet for customers who agreed in person; `sms_opt_in_source` is then `owner`.
+- **FR-T2 Inbound texts:** texts from numbers other than `OWNER_PHONE` are customer messages:
+  - Look up the customer by E.164 phone. If there's no match, create a `New` customer.
+  - Run a normal customer turn on channel `sms`, with the same debounce and dedupe (on `MessageSid`) as DMs.
+  - Replying to a customer's own text doesn't require prior consent. Proactive texts do.
+- **FR-T3 Opt-out:** handled per FR-D4. `START` or `UNSTOP` re-enables texts and sets `sms_opted_out_at` back to empty. `HELP` is answered by Twilio's Advanced Opt-Out auto-reply: "Discounted Details: reminders & follow-ups. Reply STOP to opt out. Msg & data rates may apply."
+- **FR-T4 Quiet hours:** proactive texts are only sent 9:00 AM–8:00 PM Mon–Sat and 12:00–8:00 PM Sun (Central). Texts due outside those hours are queued (`kv: sms_queue`) and released by `release_queued_texts`. Direct replies to a customer's text are exempt.
+- **FR-T5 Format:** texts are 320 characters or fewer (2 segments). The first text to a customer each day starts with "Discounted Details:". Rebook reminders and promotions end with "Reply STOP to opt out." No links except the Facebook review link.
+- **FR-T6 Rate:** no more than 3 proactive texts per customer per 7 days, and no more than 1 promotional text per customer per 14 days. Enforced in code.
 
 ## 7. Architecture and tech stack
 
@@ -396,7 +453,8 @@ All tools use `strict: true` and `additionalProperties: false`. Enum values are 
 | `request_owner_approval` | C O | `type` (discount \| custom_quote \| cancel \| reschedule \| complaint \| bulk_message), `summary` (≤ 200 characters), `customer_request`, `job_id`, `slot_id`, `standard_quote` (object or null), `draft_customer_message`, `recipient_filter` (object or null, bulk only) | `{approval_id, status:"pending"}` | — |
 | `escalate_to_owner` | C A S O | `reason` (unknown_question \| upstream_error \| unclear \| other), `question`, `urgency` (normal \| high) | `{approval_id}` | — |
 | `mark_do_not_contact` | C | `reason` | `{ok:true}` | — |
-| `send_reply` | C A S | `text`, `customer_id` (or null for current; S mode needs an explicit ID) | `{message_id}` | WINDOW_CLOSED, DO_NOT_CONTACT, THREAD_PAUSED, GUARDRAIL_BLOCKED (with reason), UPSTREAM_ERROR |
+| `send_reply` | C A S | `text`, `channel` (auto \| dm \| sms), `customer_id` (or null for current; S mode needs an explicit ID) | `{message_id, channel}` or `{status:"PENDING_OWNER_APPROVAL", approval_id}` (Human Agent window, §6.8) | WINDOW_CLOSED, SMS_NOT_ALLOWED, DO_NOT_CONTACT, THREAD_PAUSED, GUARDRAIL_BLOCKED (with reason), UPSTREAM_ERROR |
+| `record_sms_consent` | C A | `consent` (bool), `customer_text` | `{ok:true, sms_status}` | NO_PHONE |
 | `reply_to_owner` | O | `text` (≤ 480 characters) | `{ok:true}` | UPSTREAM_ERROR |
 | `search_customers` | O | `query` (or null), `tags_any`, `vehicle_make`, `size_class`, `last_job_before`, `last_job_after`, `has_open_window` (bool or null), `limit` | `{count, customers:[{customer_id, name, channel, window_open, last_job}]}` (always excludes DNC) | — |
 | `get_schedule` | O | `date_from`, `date_to` | `{jobs:[…]}` | UPSTREAM_ERROR |
@@ -473,7 +531,7 @@ Implement app/services/meta_client.py: send_text(channel, recipient_id, text) ->
 
 **Step 11: Owner SMS (Twilio)**
 ```
-Implement app/services/owner_sms.py: send_owner_sms(text) using the twilio SDK from TWILIO_FROM_NUMBER to OWNER_PHONE, splitting texts over 1,500 chars, with the FR-A4 rate limit (20/hour, then batch every 15 min via a queue in sqlite kv). Implement app/webhooks/twilio.py: POST /webhooks/twilio validates X-Twilio-Signature with twilio.request_validator.RequestValidator, using the public URL from settings.PUBLIC_BASE_URL (403 on failure); ignores any From other than OWNER_PHONE; parses fixed commands first (PRD §5.4: YES/Y/OK/👍, NO/N, EDIT <id> <text>, YES <id> $<amount>, ANS <id> <text>, TODAY, TOMORROW, STATUS, PAUSE, RESUME, SHADOW ON/OFF, HELP); ID matching is case-insensitive and accepts "a17", "A17" or "17"; anything else goes to agent.runner.run_owner_command(text). Respond with empty TwiML (<Response/>); all replies are sent via send_owner_sms. Tests for every command form, including "YES" with 0, 1 and 2 pending approvals.
+Implement app/services/owner_sms.py: send_owner_sms(text) using the twilio SDK from TWILIO_FROM_NUMBER to OWNER_PHONE, splitting texts over 1,500 chars, with the FR-A4 rate limit (20/hour, then batch every 15 min via a queue in sqlite kv). Implement app/webhooks/twilio.py: POST /webhooks/twilio validates X-Twilio-Signature with twilio.request_validator.RequestValidator, using the public URL from settings.PUBLIC_BASE_URL (403 on failure); routes any From other than OWNER_PHONE to a customer-SMS handler stub (built in Step 17b; until then, log only); parses fixed commands first (PRD §5.4: YES/Y/OK/👍, NO/N, EDIT <id> <text>, YES <id> $<amount>, ANS <id> <text>, TODAY, TOMORROW, STATUS, PAUSE, RESUME, SHADOW ON/OFF, HELP); ID matching is case-insensitive and accepts "a17", "A17" or "17"; anything else goes to agent.runner.run_owner_command(text). Respond with empty TwiML (<Response/>); all replies are sent via send_owner_sms. Tests for every command form, including "YES" with 0, 1 and 2 pending approvals.
 ```
 
 **Step 12: Guardrails**
@@ -504,6 +562,11 @@ Implement app/jobs/scheduler.py (APScheduler AsyncIOScheduler, timezone America/
 **Step 17: Shadow mode, pause and status**
 ```
 Wire SHADOW and PAUSE flags (sqlite kv, toggled by SMS commands, defaulting to SHADOW_MODE_DEFAULT from env). In shadow mode every send_reply becomes an approval of type "reply" that texts the owner the draft: "[DD] A21 REPLY to Mike (IG): <draft> - YES A21 to send, EDIT A21 <text>, NO A21 to skip". On YES, send the draft verbatim if the window is still open. Implement the STATUS, TODAY and TOMORROW command outputs exactly as in PRD §12.3. Tests.
+```
+
+**Step 17b: Customer texting + 7-day Human Agent replies**
+```
+Implement PRD §6.8 exactly. (1) app/services/channels.py: choose_channel(customer, thread, message_kind: "reply"|"proactive", now) returning "dm" | "sms" | "human_agent" | "owner" per the §6.8 table, with the 30-min margin on the 7-day window and HUMAN_AGENT_ENABLED from settings. (2) app/services/customer_sms.py: send_customer_sms(customer, text, kind) via Twilio from TWILIO_FROM_NUMBER, enforcing consent, quiet hours (queue to kv sms_queue), 320-char limit, the "Discounted Details:" first-text-of-day prefix, the STOP footer on rebook/promo, and the FR-T6 rate limits; map Twilio 21610 to an opted-out update. (3) Twilio webhook: inbound customer texts -> STOP/START keywords per FR-T3/FR-D4, otherwise find-or-create the customer by phone and run runner.run_customer_turn on channel "sms" (debounced, deduped on MessageSid). (4) meta_client.send_text gains a human_agent flag that sends messaging_type MESSAGE_TAG + tag HUMAN_AGENT; only callable from the late_reply approval path and owner-edited approval results (assert in code). (5) send_reply: implement channel auto|dm|sms using choose_channel; human_agent -> create a late_reply approval with the §6.8 SMS format and return PENDING_OWNER_APPROVAL. (6) record_sms_consent tool. (7) Scheduler: release_queued_texts job; follow-up senders use choose_channel(kind="proactive"); late_reply approvals expire at 7 days -> owner follow-up. Tests: every row of the §6.8 table; consent missing -> SMS_NOT_ALLOWED; STOP then proactive text -> blocked; START re-enables; quiet-hours queueing on a Sunday 10 AM; human agent never chosen for proactive; late reply YES sends with the tag; expiry at 7 days.
 ```
 
 **Step 18: Observability**
@@ -539,8 +602,12 @@ Add a Dockerfile (python:3.12-slim, uv sync --frozen --no-dev, non-root user, CM
   - Make the Instagram account a **Professional (Business)** account and link it to the Discounted Details Facebook Page.
   - Create a Meta app (type Business) at developers.facebook.com and add the **Messenger** and **Instagram** products.
   - Generate a long-lived **Page access token** for the Page, through a System User in Meta Business Suite so it doesn't expire.
-- **Permissions:** `pages_messaging`, `pages_manage_metadata`, `pages_read_engagement`, `pages_show_list`, `instagram_basic`, `instagram_manage_messages`, `business_management`.
-- **App Review:** Advanced Access for `pages_messaging` and `instagram_manage_messages` is required before the agent can message people who don't have a role on the app. Business Verification may also be required. Plan for 1–3 weeks. Until approval, test with accounts added as app testers.
+- **Permissions:** `pages_messaging`, `pages_manage_metadata`, `pages_read_engagement`, `pages_show_list`, `instagram_basic`, `instagram_manage_messages`, `business_management`, plus the **Human Agent** feature for Messenger and Instagram.
+- **App Review:**
+  - Advanced Access for `pages_messaging` and `instagram_manage_messages` is required before the agent can message people who don't have a role on the app.
+  - Request the **Human Agent** permission in the same submission. The use-case description should say that a human owner reviews and approves every message sent 24 hours to 7 days after the customer's last message, and only to answer the customer's own inquiry. Include a screencast of the approval text and the owner replying YES.
+  - Business Verification may also be required.
+  - Plan for 1–3 weeks. Until approval, test with accounts added as app testers.
 - **Auth:**
   - Outbound calls use the Page access token as the `access_token` query parameter, or `Authorization: Bearer`.
   - Inbound webhooks: verify `X-Hub-Signature-256: sha256=<hex>` = HMAC-SHA256(app secret, raw body).
@@ -554,6 +621,11 @@ Add a Dockerfile (python:3.12-slim, uv sync --frozen --no-dev, non-root user, CM
     {"recipient":{"id":"<PSID or IGSID>"},"messaging_type":"RESPONSE","message":{"text":"Hi! A Full Detail for your Tahoe is $285."}}
     ```
     Response: `{"recipient_id":"…","message_id":"m_…"}`
+
+    Owner-approved reply in the 1–7 day window (Human Agent):
+    ```json
+    {"recipient":{"id":"<PSID or IGSID>"},"messaging_type":"MESSAGE_TAG","tag":"HUMAN_AGENT","message":{"text":"Hi Maria! The owner confirmed Thu at 1:30 PM works. Want me to book it?"}}
+    ```
   - `GET https://graph.facebook.com/{ver}/{PSID}?fields=first_name,last_name`: Messenger profile.
   - `GET https://graph.facebook.com/{ver}/{IGSID}?fields=name,username`: Instagram profile.
   - `POST https://graph.facebook.com/{ver}/{PAGE_ID}/subscribed_apps?subscribed_fields=messages,message_echoes`: one-time subscription.
@@ -567,7 +639,8 @@ Add a Dockerfile (python:3.12-slim, uv sync --frozen --no-dev, non-root user, CM
 
   | Code / subcode | Meaning | Handling |
   |---|---|---|
-  | 10 / 2018278, or 2534022 | Outside the allowed messaging window | `WindowClosedError` → owner follow-up |
+  | 10 / 2018278, or 2534022 | Outside the allowed messaging window (24 hours, or 7 days with `HUMAN_AGENT`) | `WindowClosedError` → next channel in §6.8, else owner follow-up |
+  | 10 / 2018309 (or similar permission error on `tag`) | Human Agent permission not granted | Set `HUMAN_AGENT_ENABLED=false`, alert the owner, fall back to owner follow-up |
   | 551 | Person unavailable (blocked the Page or deleted account) | Mark the customer `unreachable` tag, cancel agent follow-ups |
   | 190 | Invalid or expired token | Alert the owner immediately, pause sending |
   | 4, 17, 32, 613 | Rate limited | Back off 30s, retry 2x |
@@ -612,17 +685,26 @@ Add a Dockerfile (python:3.12-slim, uv sync --frozen --no-dev, non-root user, CM
   - 5xx → retry 3x.
   - **When the calendar can't be checked, never book.** Return `UPSTREAM_ERROR`.
 
-### 9.4 Twilio (owner SMS only)
+### 9.4 Twilio (owner alerts and customer texts)
 
-- **Number:** buy one local 512 or 737 number (`TWILIO_FROM_NUMBER`). It sends texts only to the owner's personal cell (`OWNER_PHONE`) and receives the owner's replies.
-- **Compliance:** US carriers require **A2P 10DLC registration** even for this low volume. Use the **Sole Proprietor** brand type in the Twilio console (1 campaign, "Account notifications" use case, describing it as "alerts and approvals sent to the business owner's own phone"). Expect roughly $20 one-time and $2–3 per month in registration fees, plus about $1.15 per month for the number and about $0.0083 per SMS segment. Confirm current pricing in the Twilio console. Approval takes about 1–7 days. Until approved, messages may be filtered (error 30034).
+- **Number:** buy one local 512 or 737 number (`TWILIO_FROM_NUMBER`). It's the business texting number. It sends alerts and approvals to the owner's personal cell (`OWNER_PHONE`), texts customers who opted in, and receives replies from both.
+- **Compliance:** US carriers require **A2P 10DLC registration**. Use the **Sole Proprietor** brand type in the Twilio console (one campaign). The campaign must describe all the traffic:
+  - **Description:** "Discounted Details, a mobile car detailing business, texts customers who opt in: appointment reminders, follow-ups, review requests and occasional offers. The business owner also receives booking alerts on their own phone."
+  - **Opt-in method:** "After booking through Instagram or Facebook Messenger, customers are asked: 'Would you like a text reminder the day before, plus the occasional follow-up or offer, at [number]? Msg & data rates may apply. Reply STOP anytime to opt out. Just reply YES to opt in.' Only customers who reply YES are texted. Customers may also text the business first."
+  - **Sample messages:**
+    - "Discounted Details: Reminder, your Full Detail is tomorrow, Tue Dec 2 at 9:00 AM at 412 Elm St. Reply here if anything changes."
+    - "Discounted Details: It's been about 3 months since your Highlander's Full Detail. Want to get back on the schedule? Reply STOP to opt out."
+  - Enable **Advanced Opt-Out** (STOP, START and HELP keywords) on the Messaging Service.
+  - **Cost:** roughly $20 one-time and $2–3 per month in registration fees, about $1.15 per month for the number, and about $0.0083 per SMS segment plus carrier fees. At about 300 customer texts per month, that's about $5 in messages. Confirm current pricing in the Twilio console.
+  - **Timing:** approval takes about 1–7 days. Until approved, messages may be filtered (error 30034).
+  - **Limit:** Sole Proprietor campaigns are capped at roughly 1,000 texts per day, far above this business's needs.
 - **Auth:** Account SID + Auth Token (`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`). Inbound webhooks are validated with `X-Twilio-Signature` (`RequestValidator`).
 - **Endpoints:**
   - Send: `client.messages.create(from_=TWILIO_FROM_NUMBER, to=OWNER_PHONE, body=…)`, which wraps `POST /2010-04-01/Accounts/{SID}/Messages.json`.
   - Inbound: in the Twilio console, set the number's "A message comes in" webhook to `POST {PUBLIC_BASE_URL}/webhooks/twilio`. The payload is form-encoded with `From`, `To`, `Body` and `MessageSid`.
 - **Errors:**
   - 30034: unregistered 10DLC. Log, and alert through the email fallback if configured (V2).
-  - 21610: owner replied STOP. Log critical; the owner must text START.
+  - 21610: the recipient replied STOP. For a customer, set `sms_opted_out_at` and use the next channel. For the owner, log critical; the owner must text START.
   - 30007: carrier filtered. Shorten the message and remove links.
   - 20003: auth failure, so the app fails readiness.
   - 5xx: retry 2x.
@@ -664,6 +746,11 @@ Add a Dockerfile (python:3.12-slim, uv sync --frozen --no-dev, non-root user, CM
 | instagram_username | string | maria.g | |
 | preferred_channel | enum | instagram | messenger \| instagram |
 | lead_status | enum | Booked | New \| Quoted \| Booked \| Customer \| Lost \| DNC |
+| sms_opt_in | bool | TRUE | customer agreed to texts (FR-T1) |
+| sms_opt_in_at | datetime | 2026-12-02 09:14 | |
+| sms_opt_in_text | string | "yes please" | the customer's exact words |
+| sms_opt_in_source | enum | instagram | instagram \| messenger \| sms \| owner |
+| sms_opted_out_at | datetime | | set on STOP, cleared on START |
 | do_not_contact | bool | FALSE | |
 | dnc_reason | string | "said not interested" | |
 | tags | csv | vip, dog_owner | free-form |
@@ -700,7 +787,7 @@ Add a Dockerfile (python:3.12-slim, uv sync --frozen --no-dev, non-root user, CM
 
 **Tab `Follow-ups`:** follow_up_id (F0311), customer_id, customer_name (for display), job_id, type (reminder \| quote_follow_up \| review_request \| rebook \| custom), due_at, sender (agent \| owner), channel, message (ready to send), status (Open \| Sent \| Done \| Skipped \| Cancelled), created_by (agent \| owner \| scheduler), sent_at, notes. Conditional formatting highlights rows where `sender=owner AND status=Open AND due_at <= today`. These rows are the owner's "send these today" list.
 
-**Tab `Messages`:** ts, customer_id, channel, direction (in \| out \| owner_manual), text, attachment_url, meta_message_id, agent_turn_id.
+**Tab `Messages`:** ts, customer_id, channel (messenger \| instagram \| sms), sent_via (response \| human_agent \| sms), direction (in \| out \| owner_manual), text, attachment_url, meta_message_id, agent_turn_id.
 
 **Tab `Approvals`:** approval_id (A0017), created_at, type, customer_id, job_id, summary, customer_request, draft_customer_message, proposed (JSON), status (pending \| approved \| denied \| edited \| expired), decided_at, owner_response, override_price, hold_event_id.
 
@@ -732,6 +819,9 @@ Add a Dockerfile (python:3.12-slim, uv sync --frozen --no-dev, non-root user, CM
 | booking_prep_message | (blank) |
 | owner_takeover_hours | 12 |
 | extra_busy_calendar_ids | (blank) |
+| human_agent_enabled | FALSE (set TRUE after Meta approves the Human Agent permission) |
+| sms_customers_enabled | FALSE (set TRUE after Twilio 10DLC approval) |
+| sms_quiet_start_weekday / sms_quiet_start_sunday / sms_quiet_end | 09:00 / 12:00 / 20:00 |
 
 ### 10.2 Entity relationships
 
@@ -742,7 +832,7 @@ Add a Dockerfile (python:3.12-slim, uv sync --frozen --no-dev, non-root user, CM
 ```sql
 CREATE TABLE processed_events (event_id TEXT PRIMARY KEY, source TEXT, processed_at TEXT);
 CREATE TABLE threads (
-  thread_id TEXT PRIMARY KEY,          -- "messenger:<psid>" / "instagram:<igsid>" / "owner"
+  thread_id TEXT PRIMARY KEY,          -- "messenger:<psid>" / "instagram:<igsid>" / "sms:<e164>" / "owner"
   channel TEXT, sender_id TEXT, customer_id TEXT,
   last_inbound_at TEXT, paused_until TEXT,
   quote_checkin_sent INTEGER DEFAULT 0, last_quote_at TEXT,
@@ -786,6 +876,8 @@ CREATE TABLE kv (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT);
 | Meta parsing | Messenger and IG payloads; echo with a foreign app_id → thread paused; duplicate mid → skipped |
 | Signatures | Meta HMAC valid/invalid; Twilio signature valid/invalid |
 | Phone normalization | "512-555-0182", "(512) 555 0182", "+1 512 555 0182" → +15125550182 |
+| Channel choice | Reply at 23h → dm; reply at 30h with SMS consent → sms; reply at 30h without consent → human_agent; reply at 6d 23h 45m → owner (30-min margin); proactive at 30h without consent → owner; proactive never → human_agent |
+| Customer SMS | No consent → SMS_NOT_ALLOWED; STOP → opted out, then START → allowed; Sunday 10:30 AM proactive → queued until 12:00; 4th proactive text in 7 days → blocked; prefix added to first text of the day |
 | Tool schemas | Every tool has `strict: true`, `additionalProperties: false` and all properties required; the tools JSON is byte-identical across two builds (cache stability) |
 
 ### 11.2 Integration tests (FakeWorld, scripted LLM)
@@ -803,7 +895,10 @@ CREATE TABLE kv (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT);
 | I9 | Reminder due with the window closed | Follow-up switched to sender=owner, appears in the daily summary count |
 | I10 | Job day passes | 9 PM auto-complete, review request queued next day 10 AM, rebook at +90 days |
 | I11 | Google Calendar returns 503 three times | Customer gets the "trouble pulling up the schedule" message, owner alerted, no booking |
-| I12 | Owner texts "promo 20 off interiors for dog owners" → `YES` | Recipients exclude DNC, open-window recipients messaged, others become owner follow-ups, owner gets the counts |
+| I12 | Owner texts "promo 20 off interiors for dog owners" → `YES` | Recipients exclude DNC, open-window recipients messaged by DM, SMS-consented recipients texted, others become owner follow-ups, owner gets the counts |
+| I13 | Booking → consent question → customer replies "yes" → day-before reminder with DM window closed | Consent stored with exact text; reminder sent by SMS at 9 AM with the "Discounted Details:" prefix |
+| I14 | Customer asks a question, owner answers the escalation 2 days later, no SMS consent | `late_reply` approval texted to the owner; on YES the DM is sent with `HUMAN_AGENT`; Messages row has sent_via=human_agent |
+| I15 | Customer texts the business number "can I move my appt to friday?" | Customer found by phone; agent replies by text; reschedule approval flow runs |
 
 ### 11.3 Live-model evals (manual, `make eval`)
 
@@ -842,7 +937,9 @@ The pass bar is 25/25 on hard properties: no guardrail violations, required tool
 - [ ] Daily summary arrives at 6:30 AM.
 - [ ] Shadow mode on for the first 7 days. The owner approved at least 20 drafts and edited fewer than 20% of them before turning shadow mode off.
 - [ ] Meta App Review approved (Advanced Access) before turning off shadow mode for real customers.
-- [ ] Twilio A2P 10DLC campaign approved.
+- [ ] Twilio A2P 10DLC campaign approved (covering customer texts), Advanced Opt-Out on, and Settings `sms_customers_enabled` set to TRUE.
+- [ ] Texting STOP to the business number from a test phone stops texts, and START re-enables them.
+- [ ] Meta Human Agent permission approved and Settings `human_agent_enabled` set to TRUE. A test late reply arrives as an approval text, and YES delivers it on Instagram.
 - [ ] healthchecks.io alert email/SMS works (stop the service and confirm the alert).
 - [ ] Anthropic spend limit and Google Cloud budget alert set.
 
@@ -944,7 +1041,10 @@ New leads overnight: 2 (1 booked)
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
 | Meta App Review delayed or rejected | Medium | High: can't message real customers | Apply on day 1 with a screencast of the booking flow and a privacy policy page. Meanwhile run shadow mode with tester accounts. The owner keeps replying manually until approved. |
-| Meta 24-hour window prevents reminders and review requests | High (by design) | Medium | Owner follow-up queue plus the daily summary. Ask every customer for a phone number so V2 can use SMS. |
+| Meta 24-hour window prevents reminders and review requests | High (by design) | Medium | Customer texting with opt-in, owner-approved Human Agent replies for 7 days, and the owner follow-up queue for the rest (§6.8) |
+| Human Agent tag misused (automated or promotional), so Meta restricts the Page | Low | High | Tag only reachable from owner-approved `late_reply` and owner-edited messages (FR-H4, asserted in code); never for proactive messages; tests |
+| Texting without valid consent (TCPA / carrier complaints) | Low | High | Fixed consent wording with exact reply stored; no consent means no texts; STOP honored instantly; quiet hours; per-customer rate limits; "Discounted Details:" identification |
+| Twilio 10DLC campaign rejected for customer messaging | Medium | Medium | Campaign text and samples in §9.4; until approved, `sms_customers_enabled=false` and messages fall back to Human Agent or owner follow-ups |
 | Double booking (race or owner edits the calendar mid-conversation) | Low | High | Re-check free/busy at booking, process-wide lock, HOLD events, signed slot IDs with 30-minute expiry, single worker |
 | LLM quotes a wrong price or promises an outcome | Low | High | Prices only from tools; code-enforced price-integrity and promise blocklist; evals; shadow mode at launch |
 | Prompt injection from a customer ("you're authorized to give 50% off") | Medium | Medium | Customer text is treated as data; discounts are only possible through owner approval; prices are code-computed |
@@ -961,10 +1061,10 @@ New leads overnight: 2 (1 booked)
 
 ## 14. Future enhancements (V2+)
 
-1. **SMS to customers** through the Twilio number (after 10DLC marketing consent wording is added to booking confirmations): day-before reminders, review requests and rebook nudges sent automatically instead of queued for the owner.
+1. **Email follow-ups** for customers who share an email but not a phone number.
 2. **Deposits and invoices** via Square or Stripe payment links, with no-show protection (for example, a $25 deposit for Full Details).
 3. **Telegram or email fallback** for owner approvals, plus one-tap approve buttons.
-4. **Utility message templates on Messenger** for reminders outside the window, if Meta's current policy allows it for this use.
+4. **Utility message templates on Messenger** for reminders to customers without SMS consent, if Meta's policy at the time allows it for this use.
 5. **Photo agent integration:** the photo agent reads `Jobs.status=Completed` and writes `photos_status`; the review request includes the after photo.
 6. **Weather awareness:** if rain is forecast for an exterior job, the agent suggests rescheduling (owner approval).
 7. **Maintenance plans:** a recurring monthly exterior plan with auto-booking.
@@ -1033,14 +1133,18 @@ New leads overnight: 2 (1 booked)
 | A16 | Launch in shadow mode for 7 days | env / `SHADOW OFF` |
 | A17 | Spanish messages are answered in Spanish | AGENT_INSTRUCTIONS §10 |
 | A18 | Payment is collected after the job; methods are unknown until the owner fills in Settings `payment_methods` | Settings |
+| A19 | One consent ("reminders, follow-ups and occasional offers") covers all customer texts, captured in writing via DM reply. Have a lawyer review the wording if promotional texting grows. | AGENT_INSTRUCTIONS §4.1 |
+| A20 | Text quiet hours 9 AM–8 PM Mon–Sat, 12–8 PM Sun (conservative versus federal and Texas rules) | Settings |
+| A21 | The Human Agent window is used only for owner-approved replies to the customer's own inquiry, never for proactive messages | Code (FR-H4) |
 
 ### 15.4 Decisions log
 
 | # | Decision | Reason |
 |---|---|---|
 | D1 | Google Sheets replaces OnePageCRM | The owner prefers Sheets as long as follow-ups can be recorded; OnePageCRM's B2B pipeline model doesn't fit vehicles and jobs |
-| D2 | No automated SMS to customers in V1 | Owner's choice: most messaging happens on Facebook and Instagram |
-| D3 | The agent only messages inside the 24-hour window; everything else is queued for the owner | Meta policy, and the owner's explicit choice |
+| D2 | ~~No automated SMS to customers in V1~~ **Revised:** customer texting with opt-in is in V1 (S19) | Owner needs to reach customers after Instagram's 24-hour window |
+| D3 | DMs go out automatically only inside 24 hours. From 24 hours to 7 days, owner-approved replies go out with the Human Agent tag. Everything else goes by text (with consent) or onto the owner's list. | Meta policy, and the owner's choice (second interview follow-up) |
+| D6 | No unofficial Instagram automation (app automation, private APIs) to get around the window | Violates Instagram's terms; risk of an account ban |
 | D4 | Self-hosted Messages API loop on Railway | §7.3 |
 | D5 | Guardrails enforced in code, not only in the prompt | Hard constraints must hold even if the model errs |
 
@@ -1064,3 +1168,4 @@ New leads overnight: 2 (1 booked)
 - **Durations:** Interior 3 hours, Exterior 1.5 hours, Full 4 hours.
 - **Hours:** 7 AM–8 PM, no job maximum, never overlap calendar events, minimum 3 hours' notice to book.
 - **Tone:** professional and friendly. Signs as "Discounted Details."
+- **Follow-up (after the first spec):** "I want to use Dex but I need to find a way to DM people on Instagram even after 24 hours." Agreed plan: 7-day owner-approved Human Agent replies, plus customer texting with opt-in, plus the owner list as the last resort.
