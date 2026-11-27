@@ -215,3 +215,13 @@ async def test_night_polling_every_5_minutes():
     finally:
         _t.monotonic = orig
     assert sch.is_night(22) and sch.is_night(5) and not sch.is_night(6) and not sch.is_night(21)
+
+
+async def test_runner_drops_stale_thinking_blocks():
+    """Prompt edits must not break threads whose history has thinking blocks signed under the old prompt."""
+    from tests.fakes import World
+    w = World()
+    await w.runner._create([{"role": "user", "content": "hi"}])
+    call = w.claude.calls[-1]
+    assert call["thinking"]["block_binding"] == {"prefix_mismatch_behavior": "drop_block"}
+    assert "thinking-binding-controls-2026-08-01" in call["betas"]

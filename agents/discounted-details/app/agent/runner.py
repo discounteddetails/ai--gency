@@ -122,9 +122,10 @@ class AgentRunner:
             system=[{"type": "text", "text": system_prompt(), "cache_control": {"type": "ephemeral"}}],
             tools=TOOLS,
             messages=messages,
-            thinking={"type": "adaptive"},
+            # History outlives prompt edits: drop old thinking blocks whose system prompt changed instead of a 400.
+            thinking={"type": "adaptive", "block_binding": {"prefix_mismatch_behavior": "drop_block"}},
             output_config={"effort": "medium"},
-            betas=["server-side-fallback-2026-07-01"],
+            betas=["server-side-fallback-2026-07-01", "thinking-binding-controls-2026-08-01"],
             fallbacks="default",
         )
 
