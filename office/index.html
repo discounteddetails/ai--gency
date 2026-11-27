@@ -1,0 +1,211 @@
+<title>Discounted Details HQ</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* VOICE everyday, playful: a management-sim office
+   IDEA a pixel-art office floor at dusk where every AI agent in the company has its own desk
+   PICTURE the office scene, Dex typing at desk 1 with a headset, three empty desks waiting for hires
+   COLOUR plum-black ground, warm wood, mint for agents, coral sunset accent
+   TYPE Pixelify Sans for game text + Inter for reading
+   LAYOUT title row with roster chips, scene full width, then agent profile + activity side by side; stacked on phone */
+:root{color-scheme:dark;--bg:#17121f;--panel:#221a2e;--panel2:#2a2138;--ink:#f4eee6;--muted:#bdb2cc;--line:#3b2f4c;--mint:#5fd3a5;--coral:#ff8a65;--gold:#ffd27a}
+*{box-sizing:border-box;min-width:0}
+html,body{background:var(--bg)}
+body{color:var(--ink);font:16px/1.55 Inter,system-ui,sans-serif;overflow-x:clip;font-variant-ligatures:none}
+.band{padding-block:clamp(18px,3vw,36px);padding-left:max(5vw,16px,env(safe-area-inset-left,0px));padding-right:max(5vw,16px,env(safe-area-inset-right,0px))}
+.wrap{max-width:1240px;margin:0 auto}
+.top{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px 24px;padding-bottom:0}
+h1{font:700 clamp(32px,5vw,48px)/1.05 'Pixelify Sans',monospace;margin:0}
+.sub{color:var(--muted);margin:6px 0 0}
+.chips{display:flex;gap:8px;flex-wrap:wrap}
+.chip{font:600 14px/1 'Pixelify Sans',monospace;background:var(--panel);border:2px solid var(--line);padding:8px 10px;white-space:nowrap}
+.chip b{color:var(--mint)}
+.stage{position:relative;max-width:min(1240px,130svh);margin:0 auto;aspect-ratio:2/1;border:4px solid #0c0910;box-shadow:0 0 0 4px var(--line);background:#2b2238}
+.stage canvas{position:absolute;inset:0;width:100%;height:100%;image-rendering:pixelated}
+.tag{position:absolute;transform:translate(-50%,-50%);font:600 clamp(11px,1.4vw,15px)/1.1 'Pixelify Sans',monospace;background:#0c0910e6;color:var(--ink);border:2px solid var(--line);padding:5px 8px;white-space:nowrap;cursor:pointer}
+.tag:hover,.tag:focus-visible{border-color:var(--mint);outline:none}
+.tag[aria-pressed=true]{border-color:var(--mint);color:var(--mint)}
+.tag.open{color:var(--muted);border-style:dashed}
+.bubble{position:absolute;transform:translate(-22px,-100%);width:max-content;max-width:min(44%,300px);background:#fffaf0;color:#1b1424;font:500 clamp(11px,1.3vw,14px)/1.3 Inter,sans-serif;padding:6px 9px;border:2px solid #0c0910;transition:opacity .25s}
+.bubble::after{content:"";position:absolute;left:14px;bottom:-12px;border:6px solid transparent;border-top-color:#0c0910}
+.grid{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(0,1fr);gap:20px;align-items:start}
+.card{background:var(--panel);border:2px solid var(--line);padding:clamp(16px,2.4vw,24px)}
+.card h2{font:700 clamp(26px,3vw,32px)/1.05 'Pixelify Sans',monospace;margin:0}
+.role{color:var(--mint);font:600 17px 'Pixelify Sans',monospace;margin:4px 0 10px}
+.pill{display:inline-block;font:600 13px/1 Inter,sans-serif;color:var(--gold);border:1px solid #6b5a2e;background:#2e2616;padding:5px 8px;margin-bottom:12px}
+.card h3{font:600 17px 'Pixelify Sans',monospace;color:var(--ink);margin:18px 0 6px}
+.card p{margin:0 0 8px;color:var(--muted)}
+.card ul{margin:0;padding-left:20px}
+.card li{margin:3px 0}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(14em,1fr));gap:0 24px}
+.yes li::marker{color:var(--gold)}
+.no li::marker{color:var(--coral)}
+.tools{display:flex;flex-wrap:wrap;gap:6px}
+.tools span{font-size:14px;background:var(--panel2);border:1px solid var(--line);padding:3px 8px}
+.links{display:flex;flex-wrap:wrap;gap:10px 18px;margin-top:4px}
+a{color:var(--mint)}
+.note{font-size:14px;color:var(--muted);margin:4px 0 12px}
+.feed{list-style:none;padding:0!important;margin:0}
+.feed li{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:12px;padding:9px 0;border-top:1px solid var(--line);margin:0}
+.feed time{font:600 14px 'Pixelify Sans',monospace;color:var(--mint);white-space:nowrap}
+.feed li:first-child{animation:pop .4s ease-out}
+@keyframes pop{from{opacity:0;transform:translateY(-4px)}}
+code{background:var(--panel2);padding:1px 5px;font-size:14px;overflow-wrap:anywhere}
+@media(max-width:760px){.grid{grid-template-columns:minmax(0,1fr)}}
+.tag .short{display:none}
+@media(max-width:600px){.tag{font-size:10px;padding:3px 5px}.tag .full{display:none}.tag .short{display:inline}.bubble{font-size:10px;max-width:40%;padding:4px 6px}}
+@media(prefers-reduced-motion:reduce){.feed li:first-child{animation:none}.bubble{transition:none}}
+</style>
+
+<header class="band top"><div class="wrap" style="display:contents">
+  <div>
+    <h1>Discounted Details HQ</h1>
+    <p class="sub">Your AI agency. Click a desk to see who works there.</p>
+  </div>
+  <div class="chips" id="chips"></div>
+</div></header>
+
+<section class="band" style="padding-block:20px">
+  <div class="stage" id="stage">
+    <canvas id="c" width="400" height="200" role="img" aria-label="Pixel-art office with four desks. Dex the customer and booking agent works at the first desk; the other three are open."></canvas>
+    <div class="bubble" id="bubble" aria-live="polite"></div>
+  </div>
+</section>
+
+<section class="band" style="padding-top:8px">
+  <div class="wrap grid">
+    <article class="card" id="profile"></article>
+    <aside class="card">
+      <h2>Activity</h2>
+      <p class="note">Sample activity showing what Dex will do once deployed. These aren't real customers yet.</p>
+      <ul class="feed" id="feed"></ul>
+    </aside>
+  </div>
+</section>
+
+<script>
+{
+// ===== Add new agents here. desk: 0-3 (left to right). =====
+const AGENTS=[
+  {id:'dex',desk:0,name:'Dex',role:'Customer & Booking Agent',status:'Spec written · not deployed yet',
+   look:{skin:'#c68a5a',hair:'#2b1d14',shirt:'#5fd3a5'},
+   summary:'Answers your Messenger and Instagram DMs, quotes exact prices, books open times on your Google Calendar and keeps your Google Sheet CRM up to date.',
+   does:['Replies to new DMs in about a minute, inside Meta’s 24-hour window','Quotes from your price list by vehicle size, add-ons and travel fee ($2/mile past 25 miles from Kyle)','Offers open times from Google Calendar with drive time included, and books them','Logs customers, vehicles, jobs and follow-ups in the Google Sheet','Writes ready-to-send messages for you when the 24-hour window has closed','Texts you a summary every morning at 6:30'],
+   asks:['Discounts and custom quotes','Cancelling or rescheduling a customer','Promo messages to a group','Replies to upset customers'],
+   never:['Promise a perfect result','Overlap your calendar','Keep messaging uninterested people','Argue with customers','Reply to comments'],
+   tools:['Messenger','Instagram','Google Sheets','Google Calendar','Google Maps','Twilio (texts to you)','Claude'],
+   docs:[['Build spec (PRD)','https://github.com/discounteddetails/ai--gency/blob/claude/autonomous-agent-design-vtbcag/agents/discounted-details/docs/PRD.md'],['Agent instructions','https://github.com/discounteddetails/ai--gency/blob/claude/autonomous-agent-design-vtbcag/agents/discounted-details/docs/AGENT_INSTRUCTIONS.md']],
+   demo:[['New Instagram DM: “how much for a full detail on my Tahoe? dog hair everywhere”','New DM from Instagram!'],['Quoted $310: Full Detail, Large SUV, plus pet hair','Quoted $310 for the Tahoe'],['Found 3 open times on your calendar, drive time included','Found 3 open times'],['Booked Sat 8:00 AM in Kyle and added the job to the Google Sheet','Booked Sat 8:00 AM ✅'],['Texted you approval A17: customer asking for a discount','Texted you for approval'],['Queued 2 reminder messages for you to send (24-hour window closed)','Queued 2 messages for you'],['Customer said “no thanks”, so they’re marked Do Not Contact','Marked Do Not Contact']]}
+];
+const IDEAS=[['Photo agent','Before-and-after pictures for each finished job (you mentioned this one).'],['Social media agent','Turns job photos into Facebook and Instagram posts.'],['Bookkeeping agent','Tracks revenue, expenses and mileage for taxes.']];
+const DESKS=4,DY=150,deskX=i=>20+i*96;
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+const c=document.getElementById('c'),ctx=c.getContext('2d');ctx.imageSmoothingEnabled=false;
+const stage=document.getElementById('stage'),bubble=document.getElementById('bubble');
+const R=(x,y,w,h,col)=>{ctx.fillStyle=col;ctx.fillRect(Math.round(x),Math.round(y),w,h)};
+let seed=7;const rnd=()=>(seed=seed*16807%2147483647)/2147483647;
+const sky=[24,296].map(()=>{const b=[];let x=0;while(x<76){const w=6+Math.floor(rnd()*7),h=6+Math.floor(rnd()*14);b.push([x,Math.min(w,76-x),h,Math.floor(rnd()*1000)]);x+=w+1}return b});
+const byDesk=Object.fromEntries(AGENTS.map(a=>[a.desk,a]));
+
+function windowAt(x,y,k){
+  R(x,y,80,56,'#d9c7a7');
+  const bands=['#3e2e6e','#5b3b7e','#8a4c86','#c45f7c','#ef7f6c','#ffad6b'];
+  bands.forEach((col,i)=>R(x+2,y+2+i*9,76,i==5?7:9,col));
+  const cx=x+40+(k?16:-16),cy=y+44;
+  for(let dy=-7;dy<=7;dy++)for(let dx=-7;dx<=7;dx++)if(dx*dx+dy*dy<=49&&cy+dy<y+54)R(cx+dx,cy+dy,1,1,'#ffe08a');
+  sky[k].forEach(([bx,w,h,s])=>{R(x+2+bx,y+54-h,w,h,'#2a1f3d');for(let wy=y+56-h;wy<y+52;wy+=4)for(let wx=x+3+bx;wx<x+bx+w;wx+=3)if((wx*7+wy*13+s)%5==0)R(wx,wy,1,2,'#ffd27a')});
+  R(x+39,y+2,2,52,'#d9c7a7');R(x+2,y+27,76,2,'#d9c7a7');R(x-3,y+56,86,4,'#bfa983');
+}
+function room(){
+  R(0,0,400,124,'#3a2f4f');for(let x=0;x<400;x+=8)R(x,0,4,118,'#362b49');
+  R(0,118,400,6,'#251d33');
+  for(let y=124,row=0;y<200;y+=6,row++){R(0,y,400,6,row%2?'#4d3c33':'#55432f');for(let x=(row*13)%32;x<400;x+=32)R(x,y,1,6,'#3a2d26')}
+  windowAt(24,16,0);windowAt(296,16,1);
+  R(124,8,152,20,'#5e3a27');R(126,10,148,16,'#8b5a3c');
+  ctx.fillStyle='#ffe3b0';ctx.font='8px "Pixelify Sans", monospace';ctx.textAlign='center';ctx.fillText('DISCOUNTED DETAILS',200,21);
+  R(146,40,30,24,'#7a5535');R(148,42,26,20,'#a0764d');[[150,44,'#ffd27a'],[160,46,'#5fd3a5'],[152,53,'#ff8fa3'],[163,54,'#f4eee6']].forEach(([x,y,col])=>R(x,y,8,6,col));
+  R(224,40,28,24,'#f4eee6');R(224,40,28,6,'#e8584f');for(let r=0;r<3;r++)for(let q=0;q<5;q++)R(227+q*5,49+r*5,3,3,(r*5+q)%4==1?'#e8584f':'#cfc6dc');
+  const d=new Date(),cx=200,cy=54;
+  for(let dy=-11;dy<=11;dy++)for(let dx=-11;dx<=11;dx++){const r=dx*dx+dy*dy;if(r<=121)R(cx+dx,cy+dy,1,1,r>90?'#251d33':'#f4eee6')}
+  const hand=(a,len,col)=>{for(let s=0;s<=len;s++)R(cx+Math.sin(a)*s,cy-Math.cos(a)*s,1,1,col)};
+  hand((d.getHours()%12+d.getMinutes()/60)/12*Math.PI*2,5,'#1b1424');hand(d.getMinutes()/60*Math.PI*2,8,'#e8584f');
+  R(3,172,14,16,'#b5653f');R(3,172,14,2,'#94502f');
+  [[5,158,'#3f9b6b'],[9,150,'#5fd3a5'],[12,160,'#3f9b6b'],[2,164,'#5fd3a5'],[8,164,'#2f7a54']].forEach(([x,y,col])=>R(x,y,5,13,col));
+}
+function body(dx,a,t){
+  const {skin,hair,shirt}=a.look,hx=dx+30,hy=DY-30;
+  R(dx+28,DY-16,16,16,shirt);R(dx+33,DY-16,6,2,'#f4eee6');R(dx+38,DY-11,3,2,'#17121f');
+  R(dx+25,DY-14,3,12,shirt);R(dx+44,DY-14,3,12,shirt);
+  R(dx+34,DY-18,4,2,skin);R(hx,hy,12,12,skin);
+  R(hx-1,hy-1,14,4,hair);R(hx-1,hy+3,2,4,hair);R(hx+11,hy+3,2,3,hair);
+  if(t%40<2){R(hx+3,hy+7,2,1,'#1b1424');R(hx+8,hy+7,2,1,'#1b1424')}else{R(hx+3,hy+6,2,2,'#1b1424');R(hx+8,hy+6,2,2,'#1b1424')}
+  R(hx+5,hy+9,3,1,'#7a3b2e');
+  R(hx-1,hy-2,14,1,'#1b1424');R(hx-2,hy+4,2,4,'#1b1424');R(hx-1,hy+8,1,3,'#1b1424');R(hx-1,hy+10,5,1,'#1b1424');R(hx+4,hy+10,1,1,'#ff8a65');
+}
+function desk(i,t){
+  const dx=deskX(i),a=byDesk[i];
+  ctx.fillStyle='rgba(0,0,0,.28)';ctx.fillRect(dx-2,DY+30,76,3);
+  R(dx+25,DY-32,22,30,'#463c5e');R(dx+27,DY-30,18,26,'#544870');
+  if(a)body(dx,a,t);
+  R(dx,DY,72,5,'#a8714a');R(dx,DY,72,1,'#c99263');
+  R(dx+2,DY+5,68,26,'#7a4d33');R(dx+2,DY+5,68,2,'#5e3a27');R(dx+46,DY+12,18,8,'#8d5a3d');R(dx+54,DY+15,3,2,'#e0b070');
+  R(dx+4,DY-19,24,16,'#2b2b38');R(dx+6,DY-17,20,12,a?'#163240':'#15131c');R(dx+14,DY-3,4,3,'#2b2b38');R(dx+11,DY-1,10,1,'#2b2b38');
+  if(a)for(let k=0;k<4;k++){const idx=(k+Math.floor(t/6))%6,left=idx%2==0,w=6+(idx*5)%9;R(left?dx+7:dx+25-w,DY-16+k*3,w,2,left?'#5fd3a5':'#ff8fa3')}
+  R(dx+30,DY-1,14,1,'#d8d0e0');
+  R(dx+58,DY-5,5,5,'#f4eee6');R(dx+63,DY-4,1,3,'#f4eee6');
+  if(a){const up=t%4<2;R(dx+29,DY-3-(up?1:0),4,3,a.look.skin);R(dx+39,DY-3-(up?0:1),4,3,a.look.skin);ctx.fillStyle='rgba(255,255,255,.45)';ctx.fillRect(dx+60,DY-8-(t%6),1,1)}
+  else{R(dx+44,DY-8,20,8,'#f3e6c4');R(dx+44,DY-8,20,1,'#d9c7a7');R(dx+48,DY-5,12,1,'#b9a98a');R(dx+48,DY-3,8,1,'#b9a98a')}
+}
+let t=0;
+function draw(){room();for(let i=0;i<DESKS;i++)desk(i,t)}
+
+// name tags over desks
+let selected='dex';
+const tags=[];
+for(let i=0;i<DESKS;i++){
+  const a=byDesk[i],b=document.createElement('button');
+  b.className='tag'+(a?'':' open');b.innerHTML=a?`<span class="full">${a.name} · ${a.role.split(' ')[0]}</span><span class="short">${a.name}</span>`:'<span class="full">+ Open desk</span><span class="short">+ Open</span>';
+  b.style.left=(deskX(i)+36)/4+'%';b.style.top=(DY+37)/2+'%';
+  b.setAttribute('aria-label',a?a.name+', '+a.role:'Open desk '+(i+1));
+  b.onclick=()=>show(a?a.id:'desk'+i);stage.appendChild(b);tags.push([b,a?a.id:'desk'+i]);
+}
+const li=xs=>xs.map(x=>'<li>'+x+'</li>').join('');
+function show(id){
+  selected=id;tags.forEach(([b,k])=>b.setAttribute('aria-pressed',k==id));
+  const a=AGENTS.find(x=>x.id==id),p=document.getElementById('profile');
+  if(a){p.innerHTML=`<h2>${a.name}</h2><div class="role">${a.role}</div><span class="pill">${a.status}</span><p>${a.summary}</p>
+    <h3>What ${a.name} does</h3><ul>${li(a.does)}</ul>
+    <div class="cols"><div><h3>Asks you first</h3><ul class="yes">${li(a.asks)}</ul></div><div><h3>Never will</h3><ul class="no">${li(a.never)}</ul></div></div>
+    <h3>Tools</h3><div class="tools">${a.tools.map(x=>'<span>'+x+'</span>').join('')}</div>
+    <h3>Documents</h3><div class="links">${a.docs.map(([n,u])=>`<a href="${u}">${n}</a>`).join('')}</div>`}
+  else{p.innerHTML=`<h2>Open desk</h2><div class="role">Desk ${+id.slice(4)+1} · hiring</div><p>Nobody works here yet. Ideas for your next hire:</p>
+    <ul>${IDEAS.map(([n,d])=>`<li><b>${n}.</b> ${d}</li>`).join('')}</ul>
+    <h3>Adding an agent</h3><p>Add an entry to the <code>AGENTS</code> list at the top of the script in <code>office/index.html</code> and set <code>desk</code> to ${id.slice(4)}. They'll show up here with their own look and profile.</p>`}
+}
+
+// sample activity
+const dex=AGENTS[0],feed=document.getElementById('feed');
+let step=0;
+const fmt=d=>d.toLocaleTimeString([], {hour:'numeric',minute:'2-digit'});
+function post(i,when){
+  const [long,short]=dex.demo[i%dex.demo.length];
+  const el=document.createElement('li');el.innerHTML=`<time>${fmt(when)}</time><span>${long}</span>`;
+  feed.prepend(el);while(feed.children.length>7)feed.lastChild.remove();
+  bubble.textContent=short;
+}
+for(let i=0;i<4;i++)post(i,new Date(Date.now()-(4-i)*6*60000));step=4;
+bubble.style.left=(deskX(dex.desk)+36)/4+'%';bubble.style.top=(DY-34)/2+'%';
+
+const chips=document.getElementById('chips'),open=DESKS-AGENTS.length;
+chips.innerHTML=`<span class="chip"><b>${AGENTS.length}</b> agent${AGENTS.length==1?'':'s'} hired</span><span class="chip"><b>${open}</b> open desk${open==1?'':'s'}</span>`;
+
+show(selected);
+draw();
+if(document.fonts&&document.fonts.load)document.fonts.load('8px "Pixelify Sans"').then(draw,()=>{});
+if(!reduce){
+  let last=0;const loop=ts=>{if(ts-last>110){t++;last=ts;draw()}requestAnimationFrame(loop)};requestAnimationFrame(loop);
+  setInterval(()=>{bubble.style.opacity=0;setTimeout(()=>{post(step++,new Date());bubble.style.opacity=1},250)},4000);
+}else setInterval(draw,30000);
+}
+</script>
