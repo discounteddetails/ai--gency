@@ -1,4 +1,4 @@
-"""Tool definitions for Claude (PRD §7.5). Strict schemas with no optional or union-typed fields; order and content are deterministic so the prompt
+"""Tool definitions for Claude (PRD §7.5). Schemas with no optional or union-typed fields; order and content are deterministic so the prompt
 cache prefix stays stable."""
 
 from __future__ import annotations
@@ -21,7 +21,10 @@ VEHICLE = {"type": "object", "additionalProperties": False,
 
 
 def _tool(name: str, description: str, props: dict[str, Any]) -> dict[str, Any]:
-    return {"name": name, "description": description, "strict": True,
+    # Not "strict": with 14 tools the constrained-decoding grammar exceeds the API's size limit. Arguments are
+    # validated by the handlers instead (bad/missing args come back as INVALID_ARGUMENTS), and every hard rule is
+    # enforced in code (guardrails, pricing, calendar re-checks), not by the schema.
+    return {"name": name, "description": description,
             "input_schema": {"type": "object", "additionalProperties": False, "properties": props,
                              "required": list(props)}}
 

@@ -107,7 +107,7 @@ def test_tool_schemas_strict_and_complete():
     assert len(names) == len(set(names)) == len(MODES)
     for t in TOOLS:
         sch = t["input_schema"]
-        assert t["strict"] is True and sch["additionalProperties"] is False
+        assert "strict" not in t and sch["additionalProperties"] is False  # strict grammar too large for 14 tools
         assert set(sch["required"]) == set(sch["properties"])
         dumped = json.dumps(sch)
         assert "minimum" not in dumped and "maximum" not in dumped
@@ -174,3 +174,13 @@ async def test_daily_summary_and_approval_reping(w):
     with time_machine.travel(NOW + timedelta(hours=3), tick=True):
         await w.jobs.approval_reminders()
     assert any("Still waiting on A0001" in t for t in w.owner.texts())
+
+
+async def test_tool_args_tolerant_of_missing_and_extra_fields(w):
+    from app.agent.handlers import ToolContext, run_tool
+
+    ctx = ToolContext(dex=w.dex, mode="CUSTOMER_CONVERSATION")
+    out, err = await run_tool("quote_price", {"service": "exterior", "size_class": "sedan", "bogus": 1}, ctx)
+    assert not err and json.loads(out)["total"] == 75
+    out, err = await run_tool("quote_price", {"size_class": "sedan"}, ctx)
+    assert err and json.loads(out)["error"] == "INVALID_SERVICE"

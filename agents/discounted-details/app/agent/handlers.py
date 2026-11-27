@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 from dataclasses import dataclass, field
@@ -58,7 +59,13 @@ async def run_tool(name: str, args: dict[str, Any], ctx: ToolContext) -> tuple[s
         fn = HANDLERS[name]
     except KeyError:
         return json.dumps({"error": "UNKNOWN_TOOL"}), True
-    args = {k: _blank_to_none(k, v) for k, v in args.items()}
+    params = [p for p in inspect.signature(fn).parameters if p != "ctx"]
+    args = {k: _blank_to_none(k, v) for k, v in (args or {}).items() if k in params}  # ignore unknown fields
+    for p in params:
+        args.setdefault(p, None)  # schemas aren't strict, so tolerate omitted fields
+    for k in ("addons", "tags_add", "recipient_customer_ids"):
+        if k in args and args[k] is None:
+            args[k] = []
     try:
         result = await fn(ctx, **args)
         return json.dumps(result, default=str), False
