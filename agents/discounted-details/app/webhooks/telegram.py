@@ -27,6 +27,7 @@ class OwnerBot:
         self.dex = dex
         self.chat_id = int(owner_chat_id)
         self.secret = secret
+        self.nova = None  # set by main when Nova is enabled
 
     # ---------------- pending typed input (Edit / Set price / Answer) ----------------
     def _set_pending(self, approval_id: str, action: str) -> None:
@@ -53,6 +54,9 @@ class OwnerBot:
                 await self.dex.owner.send_to(chat, "This is a private bot.")
             log.warning("ignored Telegram update from chat %s", chat)
             return
+        if self.nova and (msg.get("photo") or msg.get("video") or msg.get("document")):
+            if await self.nova.add_media(msg):
+                return
         text = (msg.get("text") or "").strip()
         if text:
             reply = await self.handle_text(text)
@@ -65,6 +69,14 @@ class OwnerBot:
         try:
             aid, action = data.split(":", 1)
         except ValueError:
+            return
+        if aid.startswith("N") and self.nova:
+            reply = await self.nova.handle_callback(aid, action)
+            if reply and action in ("post", "skip") and cq.get("message", {}).get("message_id"):
+                await self.dex.owner.mark_decided(cq["message"]["message_id"], reply) \
+                    if cq["message"].get("text") else None
+            if reply:
+                await self.dex.owner.notify(reply, urgent=True)
             return
         if aid.startswith("F") and action in ("sent", "skip"):
             await self.dex.crm.update_follow_up(aid, {"status": "Sent" if action == "sent" else "Skipped",
@@ -91,6 +103,8 @@ class OwnerBot:
         dex = self.dex
         if pending := self._pop_pending():
             aid, action = pending["approval_id"], pending["action"]
+            if action == "nova_caption" and self.nova:
+                return await self.nova.set_caption(aid, text) or None
             if action == "price":
                 m = re.search(r"\d+", text.replace(",", ""))
                 if not m:

@@ -22,10 +22,13 @@ TABS: dict[str, list[str]] = {
                  "agent_turn_id"],
     "Services": ["service_key", "name", "size_class", "price", "duration_min", "includes", "active"],
     "Settings": ["key", "value", "description"],
+    "Content": ["content_id", "created_at", "kind", "status", "scheduled_for", "caption", "platforms", "ig_media_id",
+                "fb_post_id", "notes"],
 }
 
 ID_PREFIX = {"Customers": ("customer_id", "C"), "Vehicles": ("vehicle_id", "V"), "Jobs": ("job_id", "J"),
-             "Follow-ups": ("follow_up_id", "F"), "Approvals": ("approval_id", "A")}
+             "Follow-ups": ("follow_up_id", "F"), "Approvals": ("approval_id", "A"),
+             "Content": ("content_id", "N")}
 
 _EXT = ("Full exterior contact wash; wheel and rim cleaning; tire and wheel well cleaning; protective wax sealant; "
         "tire dressing; exterior window and mirror cleaning; full exterior hand drying.")

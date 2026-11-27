@@ -93,6 +93,27 @@ class TelegramOwner:
     async def answer_callback(self, callback_id: str, text: str = "") -> None:
         await self._call("answerCallbackQuery", {"callback_query_id": callback_id, "text": text[:190]})
 
+    async def post_media(self, kind: str, urls: list[str], caption: str,
+                         buttons: list[list[tuple[str, str]]] | None) -> int | None:
+        """Preview photos/videos (Telegram fetches them from our public /media URLs). Albums can't carry buttons."""
+        markup = ({"inline_keyboard": [[{"text": t, "callback_data": d[:64]} for t, d in row] for row in buttons]}
+                  if buttons else None)
+        if len(urls) == 1:
+            method, field = ("sendVideo", "video") if kind == "video" else ("sendPhoto", "photo")
+            payload: dict[str, Any] = {"chat_id": self.chat_id, field: urls[0], "caption": caption[:1024]}
+            if markup:
+                payload["reply_markup"] = markup
+            res = await self._call(method, payload)
+            if not res.get("ok"):  # fall back to a text card so the owner can still decide
+                return await self._send(caption + "\n(preview couldn't load)", markup)
+            return (res.get("result") or {}).get("message_id")
+        media = [{"type": "video" if kind == "video" else "photo", "media": u} for u in urls[:10]]
+        media[0]["caption"] = caption[:1024]
+        res = await self._call("sendMediaGroup", {"chat_id": self.chat_id, "media": media})
+        if markup:
+            return await self._send(caption, markup)
+        return None
+
     async def send_to(self, chat_id: int, text: str) -> None:
         await self._call("sendMessage", {"chat_id": chat_id, "text": text})
 
@@ -126,6 +147,11 @@ class FakeOwner:
 
     async def flush_batch(self) -> None:
         return None
+
+    async def post_media(self, kind, urls, caption, buttons) -> int:
+        if buttons:
+            return self._add(kind="buttons", text=caption, buttons=buttons, media=urls, media_kind=kind)
+        return self._add(kind="media", text=caption, media=urls, media_kind=kind)
 
     def texts(self, kind: str | None = None) -> list[str]:
         return [m["text"] for m in self.messages if kind is None or m["kind"] == kind]

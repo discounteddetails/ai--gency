@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     IG_USER_ID: str
     POLL_SECONDS: int = 60
     POLL_SECONDS_NIGHT: int = 900  # 10 PM - 6 AM (15 min)
+    NOVA_ENABLED: bool = True
+    NOVA_MEDIA_DIR: str = "/data/media"
+    NOVA_BATCH_SECONDS: int = 180
 
     # Google
     GOOGLE_SERVICE_ACCOUNT_JSON: SecretStr

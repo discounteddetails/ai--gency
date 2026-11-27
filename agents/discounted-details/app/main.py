@@ -9,7 +9,8 @@ import time
 from contextlib import asynccontextmanager
 
 import anthropic
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, HTTPException, Response
+from fastapi.responses import FileResponse
 
 from app.config import get_settings
 
@@ -65,6 +66,14 @@ def build(settings=None):
                       on_failure_streak=poll_alert)
     jobs = Jobs(dex, s.HEALTHCHECK_URL)
     bot = OwnerBot(dex, s.TELEGRAM_OWNER_CHAT_ID, s.TELEGRAM_WEBHOOK_SECRET.get_secret_value())
+    if s.NOVA_ENABLED:
+        from app.nova.media import MediaHost
+        from app.nova.service import Nova
+        from app.nova.vision import Vision
+
+        bot.nova = Nova(dex, Vision(runner.client, s.ANTHROPIC_MODEL), MediaHost(s.NOVA_MEDIA_DIR, s.PUBLIC_BASE_URL),
+                        bot_token=s.TELEGRAM_BOT_TOKEN.get_secret_value(), ig_user_id=s.IG_USER_ID,
+                        page_id=s.FB_PAGE_ID, batch_seconds=s.NOVA_BATCH_SECONDS)
     return dex, runner, jobs, poller, bot
 
 
@@ -81,7 +90,7 @@ def create_app() -> FastAPI:
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     dex, runner, jobs, poller, bot = build(s)
-    sched = build_scheduler(jobs, poller, s.POLL_SECONDS, s.POLL_SECONDS_NIGHT)
+    sched = build_scheduler(jobs, poller, s.POLL_SECONDS, s.POLL_SECONDS_NIGHT, nova=bot.nova)
 
     async def register_telegram() -> None:
         """Point the Telegram bot at this server on every start (idempotent)."""
@@ -131,6 +140,14 @@ def create_app() -> FastAPI:
     @app.get("/healthz")
     async def healthz():
         return {"ok": True}
+
+    @app.get("/media/{name}")
+    async def media(name: str):
+        """Nova's processed photos/videos, fetched by Instagram, Facebook and Telegram. Names are unguessable."""
+        p = bot.nova.host.path(name) if bot.nova else None
+        if not p:
+            raise HTTPException(status_code=404)
+        return FileResponse(p, media_type="video/mp4" if p.suffix == ".mp4" else "image/jpeg")
 
     @app.get("/readyz")
     async def readyz(response: Response):

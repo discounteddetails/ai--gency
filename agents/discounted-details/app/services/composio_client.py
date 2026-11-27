@@ -15,7 +15,14 @@ ALLOWED_TOOLS = frozenset({
     "INSTAGRAM_SEND_TEXT_MESSAGE", "INSTAGRAM_MARK_SEEN",
     "FACEBOOK_GET_PAGE_CONVERSATIONS", "FACEBOOK_GET_CONVERSATION_MESSAGES", "FACEBOOK_SEND_MESSAGE",
     "FACEBOOK_MARK_MESSAGE_SEEN",
+    # Nova (publish only; never comments or replies)
+    "INSTAGRAM_CREATE_MEDIA_CONTAINER", "INSTAGRAM_CREATE_CAROUSEL_CONTAINER", "INSTAGRAM_POST_IG_USER_MEDIA_PUBLISH",
+    "INSTAGRAM_GET_POST_STATUS", "FACEBOOK_UPLOAD_PHOTO", "FACEBOOK_PUBLISH_PAGE_PHOTO_STORY",
+    "FACEBOOK_CREATE_MULTI_PHOTO_POST",
 })
+# Publishing must never be retried blindly: a timeout after Meta accepted it would double-post.
+NO_RETRY = frozenset({"INSTAGRAM_POST_IG_USER_MEDIA_PUBLISH", "FACEBOOK_PUBLISH_PAGE_PHOTO_STORY",
+                      "FACEBOOK_CREATE_MULTI_PHOTO_POST"})
 
 
 class ComposioError(Exception):
@@ -83,7 +90,8 @@ class ComposioClient:
             raise ToolNotAllowedError(slug)
         kwargs = self._account_kwargs(slug.split("_", 1)[0])
         last: Exception | None = None
-        for attempt in range(3):
+        tries = 1 if slug in NO_RETRY else 3
+        for attempt in range(tries):
             try:
                 # Tool versions are pinned by Composio; we skip the 'latest' check to avoid startup failures.
                 res = await asyncio.to_thread(self._c.tools.execute, slug, arguments,
@@ -91,7 +99,7 @@ class ComposioClient:
             except Exception as e:  # transport / 5xx
                 last = e
                 cls = classify_error(str(e))
-                if cls in (ComposioError, RateLimitedError) and attempt < 2:
+                if cls in (ComposioError, RateLimitedError) and attempt < tries - 1:
                     await asyncio.sleep(30 if cls is RateLimitedError else 2 ** attempt)
                     continue
                 raise cls(str(e)) from e
@@ -100,7 +108,7 @@ class ComposioClient:
                 return res.get("data") or {}
             err = str(res.get("error") or "unknown Composio error")
             cls = classify_error(err)
-            if cls is RateLimitedError and attempt < 2:
+            if cls is RateLimitedError and attempt < tries - 1:
                 await asyncio.sleep(30)
                 continue
             raise cls(err)

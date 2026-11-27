@@ -12,6 +12,7 @@ Dex answers Discounted Details' Instagram and Messenger DMs (through Composio), 
 | `app/agent/` | Claude loop (`runner.py`), tools, handlers, per-turn context |
 | `app/services/` | Sheets CRM, pricing, maps, calendar, scheduling, Composio, DM sender, Telegram, channels |
 | `app/jobs/` | DM poller, scheduled jobs, APScheduler wiring |
+| `app/nova/` | Nova, the social media agent: photo intake, privacy blur, captions, Story/post publishing |
 | `app/webhooks/telegram.py` | Owner bot: buttons, commands, typed replies |
 | `scripts/` | Sheet bootstrap, Telegram setup, Human Agent test, OnePageCRM import |
 | `tests/` | Unit and end-to-end tests with fakes (`tests/fakes.py`) |
@@ -35,4 +36,5 @@ Dex answers Discounted Details' Instagram and Messenger DMs (through Composio), 
 5. Never hardcode prices outside `app/seed.py`. Live prices come from the Services tab.
 6. Run with exactly **one** worker. The scheduler, debouncer and booking lock are in-process.
 7. LLM history is append-only. Start a new epoch instead of trimming old turns.
-8. Composio calls are allow-listed (`ALLOWED_TOOLS`). Dex must never comment, post or edit profiles.
+8. Composio calls are allow-listed (`ALLOWED_TOOLS`). Dex must never comment, post or edit profiles. Only Nova publishes, and only after the owner taps ✅. Publish tools are never retried automatically (`NO_RETRY`).
+9. Nova (`app/nova/`, spec in `docs/NOVA_SPEC.md`) never replies to comments, never puts prices, "perfect" or addresses in captions (`captions.check`), and blurs plates and house numbers before the owner sees a preview.
