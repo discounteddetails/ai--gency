@@ -29,6 +29,7 @@ class OwnerBot:
         self.secret = secret
         self.nova = None  # set by main when Nova is enabled
         self.pixel = None  # set by main when Pixel is enabled
+        self.router = None  # set by main: sends plain messages to Dex, Nova or Pixel
 
     # ---------------- pending typed input (Edit / Set price / Answer) ----------------
     def _set_pending(self, approval_id: str, action: str) -> None:
@@ -178,10 +179,39 @@ class OwnerBot:
                         return await dex.decide(aid, "price", price=int(price.group(1)))
                     return await dex.decide(aid, "approve")
                 return await dex.decide(aid, "decline")
+        if self.router:
+            r = await self.router.route(text)
+            reply = await self._dispatch(r)
+            if reply != "dex":
+                return reply
+            text = r["text"] or text
         if dex.runner:
             replies = await dex.runner.run_owner_command(text)
             return None if replies else "Done."
         return None
+
+    async def _dispatch(self, r: dict[str, str]) -> str | None:
+        """Runs Pixel/Nova actions; returns "dex" when the message belongs to Dex."""
+        agent, action, text = r["agent"], r["action"], r["text"]
+        if agent == "pixel" and self.pixel:
+            if action == "show_style":
+                return self.pixel.style_text()
+            if action == "remember_style":
+                return self.pixel.remember_rule(text)
+            job = self.router.active_design()
+            if action == "change_design" and job and job["status"] in ("choosing", "picked"):
+                return await self.pixel.revise(job["job_id"], text) or None
+            if action == "change_design" and job:
+                return f"🎨 Pixel is still working on {job['job_id']}. Send your change when the designs arrive."
+            return await self.pixel.request(text) or None
+        if agent == "nova" and self.nova:
+            post = self.router.pending_post()
+            if action == "nova_caption" and post:
+                return await self.nova.set_caption(post["content_id"], text) or None
+            return ("📸 Nova works from what you send her: photos and videos for Stories and posts, and the buttons on "
+                    "each preview (destinations, 🚀 Post now, ✏️ Edit caption). To change a caption, tap ✏️ on its "
+                    "card or just type the new caption while a post is waiting.")
+        return "dex"
 
 
 async def jobs_text(dex: Dex, day) -> str:

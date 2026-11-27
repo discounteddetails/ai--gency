@@ -31,13 +31,14 @@ class FakeDesigner:
     def __init__(self):
         self.calls = []
 
-    async def design(self, request, assets, *, has_logo, previous=None, feedback="", taste=None):
+    async def design(self, request, assets, *, has_logo, previous=None, feedback="", taste=None, formats=None):
         self.calls.append({"request": request, "assets": [a["name"] for a in assets], "has_logo": has_logo,
-                           "previous": previous, "feedback": feedback, "taste": taste})
+                           "previous": previous, "feedback": feedback, "taste": taste, "formats": formats})
         page = lambda f, c: {"format": f, "html": f"<style>body{{background:{c}}}</style><h1>$20 OFF</h1>"}  # noqa
-        return {"kind": "poster", "title": "Black Friday poster", "formats": ["feed", "story"],
-                "options": [{"label": "Bold photo", "pages": [page("feed", "#123"), page("story", "#123")]},
-                            {"label": "Clean graphic", "pages": [page("feed", "#fff"), page("story", "#fff")]}]}
+        fmts = formats or ["feed", "story"]
+        return {"kind": "poster", "title": "Black Friday poster", "formats": fmts,
+                "options": [{"label": "Bold photo", "pages": [page(f, "#123") for f in fmts]},
+                            {"label": "Clean graphic", "pages": [page(f, "#fff") for f in fmts]}]}
 
 
 class FakeRenderer:
@@ -228,3 +229,94 @@ async def test_designer_prompt_includes_taste():
     text = " ".join(b.get("text", "") for b in blocks)
     assert "Rule: navy background" in text and "bigger price" in text and "<h1>LIKED</h1>" in text
     assert "they posted this one" in text and any(b["type"] == "image" for b in blocks)
+
+
+
+def test_requested_formats():
+    from app.pixel.service import requested_formats
+    assert requested_formats("It needs to be a TikTok reel cover, 9:16") == ["story"]
+    assert requested_formats("youtube thumbnail: Interior Rescue") == ["youtube"]
+    assert requested_formats("poster for IG feed and story") == ["story", "feed"]
+    assert requested_formats("square post 1:1") == ["square"]
+    assert requested_formats("Black Friday poster, $20 off") is None
+
+
+async def test_tiktok_cover_only_9_16_and_change_switches_size(frozen, tmp_path):
+    w, px, _, _ = make(tmp_path)
+    await px.request("thumbnail for TikTok: Episode 50")
+    await settle(px)
+    assert px.designer.calls[-1]["formats"] == ["story"]
+    assert all(p["format"] == "story" for o in px.get("D0001")["data"]["options"] for p in o["pages"])
+    await px.request("youtube thumbnail: Interior Rescue")
+    await settle(px)
+    assert px.designer.calls[-1]["formats"] == ["youtube"]
+    await px.revise("D0002", "It needs to be a TikTok reel cover, 9:16")
+    assert px.designer.calls[-1]["formats"] == ["story"]
+    assert "Story / Reel cover 9:16." in [m for m in w.owner.messages if m["kind"] == "buttons"][-1]["text"]
+
+
+class RouterClient:
+    """Fake Claude for the router: returns a fixed route (or fails)."""
+
+    def __init__(self, route=None, fail=False):
+        self.messages, self.route, self.fail, self.prompts = self, route, fail, []
+
+    async def create(self, **kw):
+        from types import SimpleNamespace
+        self.prompts.append(kw["messages"][0]["content"])
+        if self.fail:
+            raise RuntimeError("down")
+        return SimpleNamespace(content=[SimpleNamespace(type="text", text=__import__("json").dumps(self.route))])
+
+
+def with_router(w, px, nova, client):
+    from app.router import Router
+    w.bot.router = Router(client, "m", pixel=px, nova=nova, dex=w.dex)
+    return w.bot.router
+
+
+async def test_plain_message_changes_current_design(frozen, tmp_path):
+    w, px, nova, _ = make(tmp_path)
+    await px.request("youtube thumbnail: Episode 50")
+    await settle(px)
+    client = RouterClient({"agent": "pixel", "action": "change_design",
+                           "text": "It needs to be a TikTok reel cover, 9:16"})
+    with_router(w, px, nova, client)
+    assert await w.bot.handle_text("It needs to be a TikTok reel cover, 9:16") is None
+    assert px.designer.calls[-1]["formats"] == ["story"] and px.designer.calls[-1]["feedback"]
+    assert w.claude.calls == []  # Dex was not involved
+    assert "pixel_current_design" in client.prompts[0] and "D0001" in client.prompts[0]
+
+
+async def test_router_sends_business_questions_to_dex_and_names_win(frozen, tmp_path):
+    w, px, nova, _ = make(tmp_path)
+    with_router(w, px, nova, RouterClient({"agent": "dex", "action": "owner_command", "text": "who's booked Saturday"}))
+    w.claude.queue([])
+    await w.bot.handle_text("who's booked Saturday")
+    assert len(w.claude.calls) == 1
+    # model said dex, but the owner addressed Pixel by name
+    with_router(w, px, nova, RouterClient({"agent": "dex", "action": "owner_command", "text": "a gift card design"}))
+    await w.bot.handle_text("Pixel, make a gift card design")
+    await settle(px)
+    assert px.designer.calls[-1]["request"] == "a gift card design"
+
+
+async def test_router_failure_falls_back_to_named_agent_or_dex(frozen, tmp_path):
+    w, px, nova, _ = make(tmp_path)
+    with_router(w, px, nova, RouterClient(fail=True))
+    await w.bot.handle_text("pixel: poster for Cyber Monday")
+    await settle(px)
+    assert px.designer.calls[-1]["request"] == "poster for Cyber Monday"
+    w.claude.queue([])
+    await w.bot.handle_text("how many bookings this week")
+    assert len(w.claude.calls) == 1
+
+
+async def test_router_style_and_nova_caption(frozen, tmp_path):
+    w, px, nova, _ = make(tmp_path)
+    with_router(w, px, nova, RouterClient({"agent": "pixel", "action": "remember_style", "text": "always navy"}))
+    assert "always: always navy" in await w.bot.handle_text("always use navy from now on")
+    nova._save("N0001", "post", "pending", {"media": [], "caption": "old", "targets": ["fbf"]})
+    with_router(w, px, nova, RouterClient({"agent": "nova", "action": "nova_caption", "text": "New caption ✨"}))
+    assert await w.bot.handle_text("Nova change the caption to: New caption ✨") is None
+    assert nova.get("N0001")["data"]["caption"] == "New caption ✨"

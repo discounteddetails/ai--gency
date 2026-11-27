@@ -31,6 +31,24 @@ FORMAT_LABEL = {"feed": "Feed post 4:5", "story": "Story / Reel cover 9:16", "sq
 NOVA_TARGETS = {"feed": ["igf", "fbf"], "square": ["igf", "fbf"], "story": ["igs", "fbs"]}
 
 
+FORMAT_WORDS = [
+    ("story", r"tik\s?tok|reels?\b|shorts?\b|stor(?:y|ies)|vertical|portrait|9\s*[:x/]\s*16|1080\s*x\s*1920"),
+    ("youtube", r"youtube|\byt\b|16\s*[:x/]\s*9|landscape|widescreen|1280\s*x\s*720"),
+    ("square", r"square|1\s*[:x/]\s*1\b"),
+    ("feed", r"\bfeed\b|4\s*[:x/]\s*5|instagram post|facebook post"),
+]
+
+
+def requested_formats(text: str) -> list[str] | None:
+    """Sizes the owner named, e.g. 'TikTok reel cover, 9:16' -> ['story']. None = let Pixel choose."""
+    import re
+    t = (text or "").lower()
+    hits = [f for f, pat in FORMAT_WORDS if re.search(pat, t)]
+    if "only" not in t and "both" in t and hits == ["story"]:
+        return None
+    return hits or None
+
+
 def is_design_caption(text: str) -> bool:
     return (text or "").strip().lower().startswith(("/design", "/logo"))
 
@@ -230,7 +248,7 @@ class Pixel:
         if not text:
             text = "Make something eye-catching with these for my page."
         data = {"request": text, "assets": [{k: a[k] for k in ("name", "desc", "path")} for a in assets],
-                "round": 0, "created_at": clock.now().isoformat()}
+                "round": 0, "created_at": clock.now().isoformat(), "formats": requested_formats(text)}
         self._save(jid, "designing", data)
         await self.dex.owner.notify(f"🎨 Pixel is on it ({jid}). Designs take about a minute.", urgent=True)
         self.dex.activity.log("Pixel", f"Started designing: {text[:120]}", "Designing… 🎨")
@@ -259,7 +277,7 @@ class Pixel:
         try:
             result = await self.designer.design(data["request"], assets, has_logo=bool(self.logo),
                                                 previous=previous, feedback=feedback,
-                                                taste=self._taste_for_design())
+                                                taste=self._taste_for_design(), formats=data.get("formats"))
         except Exception as e:
             log.exception("design failed")
             self._save(jid, "failed", data)
@@ -357,6 +375,8 @@ class Pixel:
         if not job or job["status"] not in ("choosing", "picked"):
             return f"{jid} can't be changed now."
         data = job["data"]
+        if fmts := requested_formats(feedback):  # "it needs to be a TikTok cover, 9:16" changes the sizes
+            data["formats"] = fmts
         self._remember_feedback(feedback)
         self._save(jid, "designing", data)
         await self.dex.owner.notify(f"🎨 Updating {jid}…", urgent=True)

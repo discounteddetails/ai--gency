@@ -43,6 +43,7 @@ one page per format listed in `formats`. Formats and sizes (px):
 - feed 1080x1350 (Instagram/Facebook post)   - story 1080x1920 (Stories/Reel cover)
 - square 1080x1080                           - youtube 1280x720 (YouTube thumbnail)
 Choose formats: posters -> ["feed","story"]; thumbnails -> ["youtube","story"] unless the owner asks otherwise.
+TikTok / Reels / Shorts covers are 9:16 = "story".
 
 HTML RULES (the page is screenshotted at exactly that size; no scrolling, no JavaScript):
 - Each page's `html` is a fragment: one <style> block, then the markup. body is already width x height.
@@ -74,7 +75,7 @@ class Designer:
 
     async def design(self, request: str, assets: list[dict[str, Any]], *, has_logo: bool,
                      previous: dict[str, Any] | None = None, feedback: str = "",
-                     taste: dict[str, Any] | None = None) -> dict[str, Any]:
+                     taste: dict[str, Any] | None = None, formats: list[str] | None = None) -> dict[str, Any]:
         """assets: [{name, desc, preview_jpeg}]. previous/feedback for revisions."""
         asset_lines = "\n".join(f"- asset:{a['name']} — {a['desc']}" for a in assets) or \
             "- (no photos: design with color, shapes and type only)"
@@ -106,6 +107,9 @@ class Designer:
                                                     "applies exactly these changes to the previous design; the "
                                                     "second is a fresh take that also follows them."})
         content.append({"type": "text", "text": f"OWNER'S REQUEST: {request}"})
+        if formats:
+            content.append({"type": "text", "text": "REQUIRED FORMATS (the owner asked for these sizes; make every "
+                                                    f"option in EXACTLY these and nothing else): {formats}"})
         resp = await self.client.messages.create(
             model=self.model, max_tokens=16000, messages=[{"role": "user", "content": content}],
             output_config={"effort": "medium", "format": {"type": "json_schema", "schema": SCHEMA}})
@@ -113,6 +117,10 @@ class Designer:
             raise RuntimeError("design request refused")
         text = next(b.text for b in resp.content if getattr(b, "type", "") == "text")
         data = json.loads(text)
+        if formats:  # enforce the owner's sizes even if the model drifted
+            for o in data.get("options", []):
+                o["pages"] = [p for p in o.get("pages", []) if p.get("format") in formats]
+            data["formats"] = formats
         data["options"] = [o for o in data.get("options", []) if o.get("pages")][:2]
         if not data["options"]:
             raise RuntimeError("no designs returned")

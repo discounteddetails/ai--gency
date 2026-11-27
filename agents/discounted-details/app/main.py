@@ -83,6 +83,9 @@ def build(settings=None):
         host = bot.nova.host if bot.nova else MediaHost(s.NOVA_MEDIA_DIR, s.PUBLIC_BASE_URL)
         bot.pixel = Pixel(dex, Designer(runner.client, s.ANTHROPIC_MODEL), Renderer(s.CHROMIUM_PATH or None), host,
                           s.PIXEL_ASSETS_DIR, bot_token=s.TELEGRAM_BOT_TOKEN.get_secret_value(), nova=bot.nova)
+    from app.router import Router
+
+    bot.router = Router(runner.client, s.ANTHROPIC_MODEL, pixel=bot.pixel, nova=bot.nova, dex=dex)
     return dex, runner, jobs, poller, bot
 
 
