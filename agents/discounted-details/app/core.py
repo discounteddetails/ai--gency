@@ -21,7 +21,7 @@ from app.services.debounce import Debouncer
 from app.services.dm_client import DMClient
 from app.services.maps import AddressNotFound, Maps
 from app.services.owner_telegram import OwnerChannel
-from app.services.promo import active_promo
+from app.services.promo import active_promo, keyword_hit
 from app.services.scheduling import BOOKING_LOCK, SlotError, recheck_slot, verify_slot
 from app.services.sheets import SheetsCRM, UpstreamError
 
@@ -131,7 +131,34 @@ class Dex:
             return
         self.activity.log("Dex", f"New {CHANNEL_LABEL[ev.channel]} DM from {who}: “{text[:90]}”",
                           f"New DM from {who}!")
+        if await self._promo_keyword_reply(ev, customer, text):
+            return
         self.debouncer.add(ev.thread_id, ev)
+
+    async def _promo_keyword_reply(self, ev: InboundEvent, customer: dict[str, Any], text: str) -> bool:
+        """A DM that is just the promo keyword (e.g. a Story reply "FRIDAY") gets the owner-approved offer DM
+        right away, even in test mode, exactly like a keyword comment. Longer messages go to the normal flow."""
+        promo = active_promo(await self.crm.get_settings())
+        if not promo or not promo["dm"] or len(text) > 40 or not keyword_hit(text, promo["keyword"]):
+            return False
+        person = f"promo:{promo['keyword'].lower()}:{ev.channel}:{ev.sender_id}"
+        if self.db.kv_get(person):
+            return False  # already got the offer: let Dex answer normally
+        try:
+            await self._dm_send(customer, ev.channel, ev.sender_id, promo["dm"])
+        except ComposioError as e:
+            log.warning("promo keyword DM failed: %s", e)
+            return False
+        self.db.kv_set(person, True)
+        self.db.kv_set(f"promo_dm_to:{ev.thread_id}", {"keyword": promo["keyword"], "text": promo["dm"],
+                                                       "at": clock.now().isoformat()})
+        who = self.display_name(customer)
+        where = "replied to your Story with" if ev.attachments else "messaged"
+        self.activity.log("Dex", f"{who} {where} “{promo['keyword']}”, so Dex sent them the offer",
+                          f"Sent {who} the {promo['keyword']} offer")
+        await self.owner.notify(f"💬 {who} {where} \"{promo['keyword']}\" on {CHANNEL_LABEL[ev.channel]}. "
+                                "Dex sent them the offer.")
+        return True
 
     async def on_owner_message(self, ev: InboundEvent) -> None:
         until = clock.now() + timedelta(hours=self.cfg.owner_takeover_hours)

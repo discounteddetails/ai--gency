@@ -190,3 +190,28 @@ async def test_twenty_off_quote_and_booking(frozen):
     job = w.rows("Jobs")[0]
     assert job["total"] == 290 and job["override_price"] == 290 and job["notes"].startswith("Promo: $20 off")
     assert "$290" in w.composio.sent[-1]["text"]
+
+
+async def test_story_reply_keyword_gets_offer_dm_even_in_test_mode(frozen):
+    w = World(shadow=True, settings_overrides={**PROMO, "promo_discount": "20"})
+    await w.start()
+    w.composio.customer_says("instagram", "333", "FRIDAY 🔥", name="kayla")
+    await w.tick()
+    assert w.composio.sent[-1]["text"] == PROMO["promo_dm"] and w.claude.calls == []
+    assert any("Dex sent them the offer" in t for t in w.owner.texts("notify"))
+    assert w.db.kv_get("promo_dm_to:instagram:333")["keyword"] == "FRIDAY"
+    # their next message goes to Dex as usual (with the offer in context), and FRIDAY again doesn't resend
+    w.claude.queue([])
+    w.composio.customer_says("instagram", "333", "friday")
+    await w.tick()
+    assert len(w.composio.sent) == 1 and len(w.claude.calls) == 1
+    assert "<promo_dm_sent>" in w.claude.calls[0]["messages"][-1]["content"][0]["text"]
+
+
+async def test_long_message_with_keyword_goes_to_dex(frozen):
+    w = World(settings_overrides=PROMO)
+    await w.start()
+    w.claude.queue([])
+    w.composio.customer_says("instagram", "444", "hey is the friday deal good for a big truck with lots of mud?")
+    await w.tick()
+    assert w.composio.sent == [] and len(w.claude.calls) == 1
