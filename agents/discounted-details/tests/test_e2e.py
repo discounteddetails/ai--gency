@@ -378,3 +378,14 @@ async def test_activity_feed_for_booking(frozen):
     shorts = [r["short"] for r in w.rows("Activity")][::-1]  # oldest first
     assert shorts[:3] == ["New DM from Maria G!", "Quoted $310", "Replied to Maria G"]
     assert any(s.startswith("Booked ") and s.endswith("✅") for s in shorts)
+
+
+async def test_owner_asks_open_times_without_address(frozen):
+    """Atlas/owner: 'what's open Saturday?' has no customer address; slots use home base instead of crashing."""
+    w = World()
+    w.claude.queue([tool("find_available_slots", service="full", size_class="sedan", addons=[], condition="standard",
+                         address=None, earliest_date=None, latest_date=None, time_of_day="any", max_results=3)],
+                   [say("done")])
+    await w.runner.run_owner_command("what's open this week for a full detail?", quiet=True)
+    res = w.claude.last_tool_results()[0]
+    assert not res["is_error"] and len(res["slots"]) >= 1

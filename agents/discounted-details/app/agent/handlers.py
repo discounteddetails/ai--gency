@@ -128,9 +128,12 @@ async def find_available_slots(ctx, service, size_class, addons, condition, addr
                                time_of_day, max_results):
     q = await ctx.dex.quote(service, size_class, addons, condition, address)
     ctx.state.verified_amounts |= q.amounts()
+    settings = await ctx.dex.crm.get_settings()
+    # No customer address (e.g. the owner asking "what's open Saturday?"): plan drive time from home base.
+    where = address or str(settings.get("home_base_address") or "Kyle, TX 78640")
     try:
-        slots = await find_slots(calendar=ctx.dex.calendar, maps=ctx.dex.maps, settings=await ctx.dex.crm.get_settings(),
-                                 signing_key=ctx.dex.cfg.signing_key, duration_min=q.duration_min, address=address,
+        slots = await find_slots(calendar=ctx.dex.calendar, maps=ctx.dex.maps, settings=settings,
+                                 signing_key=ctx.dex.cfg.signing_key, duration_min=q.duration_min, address=where,
                                  now=clock.now(), earliest_date=_date(earliest_date), latest_date=_date(latest_date),
                                  time_of_day=time_of_day, max_results=max(1, min(5, int(max_results or 3))))
     except UpstreamError as e:

@@ -45,8 +45,8 @@ class Slot:
 
 
 # ---------- signed slot ids ----------
-def _addr_hash(address: str) -> str:
-    return hashlib.sha256(address.strip().lower().encode()).hexdigest()[:12]
+def _addr_hash(address: str | None) -> str:
+    return hashlib.sha256((address or "").strip().lower().encode()).hexdigest()[:12]
 
 
 def sign_slot(key: str, start: datetime, duration_min: int, address: str, now: datetime) -> str:

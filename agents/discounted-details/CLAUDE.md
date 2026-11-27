@@ -39,5 +39,5 @@ Dex answers Discounted Details' Instagram and Messenger DMs (through Composio), 
 6. Run with exactly **one** worker. The scheduler, debouncer and booking lock are in-process.
 7. LLM history is append-only. Start a new epoch instead of trimming old turns.
 8. Composio calls are allow-listed (`ALLOWED_TOOLS`). Dex must never comment, post or edit profiles. Only Nova publishes, and only after the owner taps ✅. Publish tools are never retried automatically (`NO_RETRY`).
-10. Atlas never writes prices, promos or settings directly: only `propose_change` → owner approves → `Dex.apply_business_changes`. Atlas delegates; it never duplicates another agent's job.
 9. Nova (`app/nova/`, spec in `docs/NOVA_SPEC.md`) never replies to comments, never puts "perfect" or addresses in captions, allows prices only in offer posts (`captions.check`), and blurs plates and house numbers before the owner sees a preview.
+10. Atlas never writes prices, promos or settings directly: only `propose_change` → owner approves → `Dex.apply_business_changes`. Atlas delegates; it never duplicates another agent's job.
