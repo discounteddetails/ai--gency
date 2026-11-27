@@ -79,7 +79,7 @@ def build(settings=None):
         from app.nova.service import Nova
         from app.nova.vision import Vision
 
-        bot.nova = Nova(dex, Vision(ai("Nova"), s.ANTHROPIC_MODEL), MediaHost(s.NOVA_MEDIA_DIR, s.PUBLIC_BASE_URL),
+        bot.nova = Nova(dex, Vision(ai("Nova"), s.ANTHROPIC_MODEL, caption_model=s.NOVA_CAPTION_MODEL), MediaHost(s.NOVA_MEDIA_DIR, s.PUBLIC_BASE_URL),
                         bot_token=s.TELEGRAM_BOT_TOKEN.get_secret_value(), ig_user_id=s.IG_USER_ID,
                         page_id=s.FB_PAGE_ID, batch_seconds=s.NOVA_BATCH_SECONDS)
     if s.PIXEL_ENABLED:

@@ -225,3 +225,49 @@ async def test_runner_drops_stale_thinking_blocks():
     call = w.claude.calls[-1]
     assert call["thinking"]["block_binding"] == {"prefix_mismatch_behavior": "drop_block"}
     assert "thinking-binding-controls-2026-08-01" in call["betas"]
+
+
+def test_cache_breakpoint_on_last_message_only_and_history_untouched():
+    from app.agent.caching import with_cache_breakpoint
+    msgs = [{"role": "user", "content": [{"type": "text", "text": "hi"}]},
+            {"role": "assistant", "content": [{"type": "thinking", "thinking": "", "signature": "s"},
+                                              {"type": "tool_use", "id": "t1", "name": "x", "input": {}}]},
+            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "{}"}]}]
+    out = with_cache_breakpoint(msgs)
+    assert out[-1]["content"][-1]["cache_control"] == {"type": "ephemeral"}
+    assert "cache_control" not in msgs[-1]["content"][-1]  # stored history unchanged
+    assert out[:-1] == msgs[:-1]
+    assert with_cache_breakpoint([{"role": "user", "content": "plain"}])[0]["content"][0]["cache_control"]
+
+
+async def test_dex_requests_cache_the_conversation():
+    from tests.fakes import World, say
+    w = World()
+    w.claude.queue([say("ok")])
+    await w.runner.run_owner_command("hello", quiet=True)
+    last = w.claude.calls[-1]["messages"][-1]["content"][-1]
+    assert last.get("cache_control") == {"type": "ephemeral"}
+    rows = w.db._q("SELECT content_json FROM llm_history")
+    assert rows and not any("cache_control" in r["content_json"] for r in rows)  # stored history unchanged
+
+
+async def test_nova_captions_use_cheaper_model_privacy_checks_dont():
+    from types import SimpleNamespace
+
+    from app.nova.vision import Vision
+    seen = []
+
+    class C:
+        def __init__(self):
+            self.messages = self
+
+        async def create(self, **kw):
+            seen.append(kw["model"])
+            import json
+            body = {"caption": "x"} if "caption" in json.dumps(kw["output_config"]) else {"items": []}
+            return SimpleNamespace(stop_reason="end_turn", content=[SimpleNamespace(type="text", text=json.dumps(body))])
+
+    v = Vision(C(), "claude-opus-5-5", caption_model="claude-sonnet-5-5")
+    await v.classify([])
+    await v.caption("facts", [], [])
+    assert seen == ["claude-opus-5-5", "claude-sonnet-5-5"]

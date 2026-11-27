@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     ATLAS_MODEL: str = "claude-sonnet-5-5"
     PIXEL_MODEL: str = "claude-sonnet-5-5"
     ROUTER_MODEL: str = "claude-haiku-5-5"
+    NOVA_CAPTION_MODEL: str = "claude-sonnet-5-5"  # Nova's privacy checks stay on ANTHROPIC_MODEL
     PIXEL_ASSETS_DIR: str = "/data/pixel"
     CHROMIUM_PATH: str = ""  # blank = Playwright's own Chromium (installed in the Docker image)
 

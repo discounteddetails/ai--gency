@@ -12,6 +12,7 @@ from typing import Any
 import anthropic
 
 from app import clock
+from app.agent.caching import with_cache_breakpoint
 from app.agent.context import build_turn
 from app.agent.handlers import ToolContext, run_tool
 from app.agent.prompt import system_prompt
@@ -128,7 +129,7 @@ class AgentRunner:
             max_tokens=4096,
             system=[{"type": "text", "text": system_prompt(), "cache_control": {"type": "ephemeral"}}],
             tools=TOOLS,
-            messages=messages,
+            messages=with_cache_breakpoint(messages),
             # History outlives prompt edits: drop old thinking blocks whose system prompt changed instead of a 400.
             thinking={"type": "adaptive", "block_binding": {"prefix_mismatch_behavior": "drop_block"}},
             output_config={"effort": "medium"},

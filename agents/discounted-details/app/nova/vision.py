@@ -76,13 +76,15 @@ def _img_block(jpeg: bytes) -> dict[str, Any]:
 
 
 class Vision:
-    def __init__(self, client, model: str = "claude-opus-5-5"):
+    def __init__(self, client, model: str = "claude-opus-5-5", caption_model: str | None = None):
         self.client = client
-        self.model = model
+        self.model = model  # privacy checks (plates, house numbers, faces): keep the strongest model
+        self.caption_model = caption_model or model  # caption writing: a cheaper model is fine
 
-    async def _json(self, content: list[dict[str, Any]], schema: dict[str, Any], effort: str = "medium") -> dict:
+    async def _json(self, content: list[dict[str, Any]], schema: dict[str, Any], effort: str = "medium",
+                    model: str | None = None) -> dict:
         resp = await self.client.messages.create(
-            model=self.model, max_tokens=8000, messages=[{"role": "user", "content": content}],
+            model=model or self.model, max_tokens=8000, messages=[{"role": "user", "content": content}],
             output_config={"effort": effort, "format": {"type": "json_schema", "schema": schema}})
         if resp.stop_reason == "refusal":
             raise RuntimeError("vision request refused")
@@ -109,4 +111,5 @@ class Vision:
         content = [{"type": "text", "text": CAPTION_PROMPT.format(
             recent="\n".join(f"- {r[:200]}" for r in recent) or "- (none)", facts=facts, price_rule=price_rule)}]
         content += [_img_block(p) for p in photos[:4]]
-        return (await self._json(content, CAPTION_SCHEMA, effort="medium"))["caption"].strip()
+        return (await self._json(content, CAPTION_SCHEMA, effort="medium",
+                                 model=self.caption_model))["caption"].strip()

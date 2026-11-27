@@ -14,6 +14,7 @@ from typing import Any
 import anthropic
 
 from app import clock
+from app.agent.caching import with_cache_breakpoint
 from app.agent.runner import _block_to_param
 from app.core import Dex
 from app.services.promo import active_promo
@@ -97,7 +98,7 @@ class Atlas:
                 resp = await self.client.beta.messages.create(
                     model=self.model, max_tokens=8000,
                     system=[{"type": "text", "text": system_prompt(), "cache_control": {"type": "ephemeral"}}],
-                    tools=TOOLS, messages=messages,
+                    tools=TOOLS, messages=with_cache_breakpoint(messages),
                     thinking={"type": "adaptive", "block_binding": {"prefix_mismatch_behavior": "drop_block"}},
                     output_config={"effort": "medium"},
                     betas=["server-side-fallback-2026-07-01", "thinking-binding-controls-2026-08-01"],
