@@ -58,7 +58,8 @@ def services_block(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def build_turn(*, mode: str, now: datetime, thread: dict[str, Any] | None, customer: dict[str, Any] | None,
                vehicles: list[dict[str, Any]], jobs: list[dict[str, Any]], follow_ups: list[dict[str, Any]],
                approvals: list[dict[str, Any]], services: list[dict[str, Any]], settings: dict[str, Any],
-               dnc: bool, body_tag: str, body: str) -> str:
+               dnc: bool, body_tag: str, body: str, promo: dict[str, str] | None = None,
+               promo_dm_sent: dict[str, Any] | None = None) -> str:
     upcoming = sorted([j for j in jobs if j.get("status") == "Booked"], key=lambda j: str(j.get("start")))
     past = sorted([j for j in jobs if j.get("status") != "Booked"], key=lambda j: str(j.get("start")))[-5:]
     job_keys = ("job_id", "service", "addons", "condition", "start", "address", "total", "status")
@@ -72,6 +73,8 @@ def build_turn(*, mode: str, now: datetime, thread: dict[str, Any] | None, custo
         f"<pending_approvals>\n{esc(_y([{'approval_id': a['approval_id'], 'type': a['type']} for a in approvals]))}\n</pending_approvals>",
         f"<services>\n{esc(_y(services_block(services)))}\n</services>",
         f"<business_settings>\n{esc(_y({k: settings.get(k) for k in KEEP_SETTINGS}))}\n</business_settings>",
+        *([f"<current_promo>\n{esc(_y({'offer': promo['details'], 'last_day': promo['ends'] or 'not set', 'comment_keyword': promo['keyword']}))}\n</current_promo>"] if promo and promo.get("details") else []),
+        *([f"<promo_dm_sent>\n{esc(_y({'keyword': promo_dm_sent.get('keyword'), 'message_we_sent': promo_dm_sent.get('text')}))}\n</promo_dm_sent>"] if promo_dm_sent else []),
         f"<{body_tag}>\n{esc(body)}\n</{body_tag}>",
     ]
     return "\n".join(parts)

@@ -91,7 +91,10 @@ def create_app() -> FastAPI:
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("httpx2").setLevel(logging.WARNING)
     dex, runner, jobs, poller, bot = build(s)
-    sched = build_scheduler(jobs, poller, s.POLL_SECONDS, s.POLL_SECONDS_NIGHT, nova=bot.nova)
+    from app.jobs.comment_watcher import CommentWatcher
+
+    comments = CommentWatcher(dex, ig_user_id=s.IG_USER_ID, page_id=s.FB_PAGE_ID)
+    sched = build_scheduler(jobs, poller, s.POLL_SECONDS, s.POLL_SECONDS_NIGHT, nova=bot.nova, comments=comments)
 
     async def register_telegram() -> None:
         """Point the Telegram bot at this server on every start (idempotent)."""

@@ -86,6 +86,10 @@ SETTINGS_ROWS: list[tuple[str, object, str]] = [
     ("extra_busy_calendar_ids", "", "Other calendars that block time (Todoist is ignored)"),
     ("human_agent_messenger", False, "Set TRUE after the 7-day reply test passes on Messenger"),
     ("human_agent_instagram", False, "Set TRUE after the 7-day reply test passes on Instagram"),
+    ("promo_keyword", "", "Comment keyword (e.g. FRIDAY). Anyone who comments it gets promo_dm as a DM. Blank = off"),
+    ("promo_dm", "", "The DM sent to people who comment the keyword"),
+    ("promo_details", "", "The offer Dex honors without asking you (exact terms)"),
+    ("promo_ends", "", "Last day of the offer (YYYY-MM-DD). After this, Dex stops honoring it"),
 ]
 
 DEFAULT_SETTINGS: dict[str, object] = {k: v for k, v, _ in SETTINGS_ROWS}

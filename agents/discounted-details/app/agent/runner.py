@@ -18,6 +18,8 @@ from app.agent.prompt import system_prompt
 from app.agent.tools import TOOLS
 from app.core import Dex
 from app.guardrails import TurnState
+from app.services.promo import active_promo
+from app.services.promo import amounts as promo_amounts
 
 log = logging.getLogger(__name__)
 MAX_ITERATIONS = 10
@@ -108,12 +110,15 @@ class AgentRunner:
         crm = self.dex.crm
         cid = (customer or {}).get("customer_id")
         approvals = [a for a in self.dex.db.list_approvals("pending") if a["payload"].get("customer_id") == cid] if cid else []
+        settings = await crm.get_settings()
+        promo_sent = self.dex.db.kv_get(f"promo_dm_to:{thread['thread_id']}") if thread else None
         return build_turn(
             mode=mode, now=clock.now(), thread=thread, customer=customer,
             vehicles=await crm.list_vehicles(cid) if cid else [], jobs=await crm.list_jobs(cid) if cid else [],
             follow_ups=await crm.list_follow_ups(status="Open", customer_id=cid) if cid else [],
-            approvals=approvals, services=await crm.get_services(), settings=await crm.get_settings(),
-            dnc=crm.is_dnc(customer), body_tag=body_tag, body=body)
+            approvals=approvals, services=await crm.get_services(), settings=settings,
+            dnc=crm.is_dnc(customer), body_tag=body_tag, body=body, promo=active_promo(settings),
+            promo_dm_sent=promo_sent)
 
     async def _create(self, messages: list[dict[str, Any]]):
         return await self.client.beta.messages.create(
@@ -139,6 +144,7 @@ class AgentRunner:
             return None
         state = state or TurnState()
         state.shadow = dex.shadow
+        state.verified_amounts |= promo_amounts(active_promo(await dex.crm.get_settings()))  # prices in the offer
         ctx = ToolContext(dex=dex, mode=mode, customer=customer, thread=thread, state=state,
                           turn_id=uuid.uuid4().hex[:12], kind=kind)
         key = self._history_key(history_key)

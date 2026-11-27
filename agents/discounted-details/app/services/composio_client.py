@@ -19,6 +19,8 @@ ALLOWED_TOOLS = frozenset({
     "INSTAGRAM_CREATE_MEDIA_CONTAINER", "INSTAGRAM_CREATE_CAROUSEL_CONTAINER", "INSTAGRAM_POST_IG_USER_MEDIA_PUBLISH",
     "INSTAGRAM_GET_POST_STATUS", "FACEBOOK_UPLOAD_PHOTO", "FACEBOOK_PUBLISH_PAGE_PHOTO_STORY",
     "FACEBOOK_CREATE_MULTI_PHOTO_POST",
+    # comment-to-DM promos (read comments only; replies go out as private DMs, never public comments)
+    "INSTAGRAM_GET_IG_USER_MEDIA", "INSTAGRAM_GET_IG_MEDIA_COMMENTS", "FACEBOOK_GET_PAGE_POSTS", "FACEBOOK_GET_COMMENTS",
 })
 # Publishing must never be retried blindly: a timeout after Meta accepted it would double-post.
 NO_RETRY = frozenset({"INSTAGRAM_POST_IG_USER_MEDIA_PUBLISH", "FACEBOOK_PUBLISH_PAGE_PHOTO_STORY",
@@ -116,7 +118,7 @@ class ComposioClient:
 
     async def proxy(self, toolkit: str, endpoint: str, method: str, body: dict[str, Any]) -> dict[str, Any]:
         """Raw Graph call through the connected account (only used for the Instagram Human Agent test/send)."""
-        if endpoint != "/me/messages" or method != "POST":
+        if not re.fullmatch(r"/(?:me|\d+)/messages", endpoint) or method != "POST":
             raise ToolNotAllowedError(f"proxy {method} {endpoint}")
         kwargs = self._account_kwargs(toolkit.upper())
         res = await asyncio.to_thread(self._c.tools.proxy, endpoint=endpoint, method=method, body=body, **kwargs)

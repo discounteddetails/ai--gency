@@ -46,3 +46,18 @@ class DMClient:
             raise ComposioError(f"No message id in send response: {data}")
         self.db.record_sent(mid, thread_id)
         return mid
+
+    async def send_private_reply(self, channel: str, comment_id: str, text: str) -> tuple[str, str]:
+        """Meta's private reply: one DM to the person who wrote comment_id (within 7 days). Returns
+        (recipient_id, message_id). The message is recorded as Dex's so the poller never reads it as the owner's."""
+        endpoint = "/me/messages" if channel == "instagram" else f"/{self.page_id}/messages"
+        data = await self.c.proxy("instagram" if channel == "instagram" else "facebook", endpoint, "POST", {
+            "recipient": {"comment_id": comment_id}, "message": {"text": text}})
+        rid, mid = str(data.get("recipient_id") or ""), str(data.get("message_id") or "")
+        if not mid:
+            raise ComposioError(f"No message id in private reply response: {data}")
+        if rid:
+            thread_id = f"{channel}:{rid}"
+            self.db.kv_set(f"pending_send:{thread_id}", (self.db.kv_get(f"pending_send:{thread_id}", []) + [text])[-5:])
+            self.db.record_sent(mid, thread_id)
+        return rid, mid

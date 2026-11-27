@@ -37,7 +37,7 @@ async def poll_if_due(poller, last_poll: dict[str, float], day_seconds: int, nig
 
 
 def build_scheduler(jobs: Jobs, poller: DMPoller, poll_seconds: int, poll_seconds_night: int,
-                    nova=None) -> AsyncIOScheduler:
+                    nova=None, comments=None) -> AsyncIOScheduler:
     s = AsyncIOScheduler(timezone=clock.TZ, job_defaults={"coalesce": True, "max_instances": 1,
                                                           "misfire_grace_time": 300})
 
@@ -71,6 +71,11 @@ def build_scheduler(jobs: Jobs, poller: DMPoller, poll_seconds: int, poll_second
     s.add_job(safe(jobs.reconcile_jobs), CronTrigger(hour=2, minute=0), id="reconcile_jobs")
     s.add_job(safe(jobs.retention_cleanup), CronTrigger(day_of_week="sun", hour=3), id="retention")
     s.add_job(safe(jobs.health_ping), IntervalTrigger(minutes=5), id="health_ping")
+    if comments:
+        async def comment_promos():
+            await comments.run_once()
+
+        s.add_job(safe(comment_promos), IntervalTrigger(minutes=3), id="comment_promos")
     if nova:
         async def nova_publish_due():
             await nova.publish_due()
