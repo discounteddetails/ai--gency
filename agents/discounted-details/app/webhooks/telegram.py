@@ -58,6 +58,11 @@ class OwnerBot:
             if await self.nova.add_media(msg):
                 return
         text = (msg.get("text") or "").strip()
+        if text and self.nova and self.nova.collecting() and not text.startswith("/") \
+                and not self.dex.db.kv_get("telegram_pending_input"):
+            self.nova.add_note(text)
+            await self.dex.owner.notify("📝 Added that note to the photos.", urgent=True)
+            return
         if text:
             reply = await self.handle_text(text)
             if reply:

@@ -89,6 +89,7 @@ def create_app() -> FastAPI:
     # httpx logs full request URLs; the Telegram bot token is part of the URL, so never log them.
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("httpx2").setLevel(logging.WARNING)
     dex, runner, jobs, poller, bot = build(s)
     sched = build_scheduler(jobs, poller, s.POLL_SECONDS, s.POLL_SECONDS_NIGHT, nova=bot.nova)
 

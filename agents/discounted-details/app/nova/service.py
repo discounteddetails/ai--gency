@@ -123,17 +123,24 @@ class Nova:
             return False
         item["note"] = (msg.get("caption") or "").strip()
         item["at"] = clock.now().isoformat()
-        if not self.dex.db.kv_get("nova_batch_open"):
-            self.dex.db.kv_set("nova_batch_open", True)
+        if not self.collecting():
             await self.dex.owner.notify("📸 Got it! Keep sending. Nova will prepare Story and post previews about "
                                         "3 minutes after your last photo or video.", urgent=True)
         self.debouncer.add("batch", item)
         return True
 
     # ------------------------------------------------------------------ processing
+    def collecting(self) -> bool:
+        """True while Nova is waiting for more photos (in memory, so a restart never leaves it stuck)."""
+        return bool(self.debouncer._buffers.get("batch"))
+
+    def add_note(self, text: str) -> None:
+        """A plain text message sent while Nova is collecting photos is a note about them, e.g. "Tahoe, Kyle"."""
+        self.debouncer.add("batch", {"kind": "note", "note": text.strip(), "at": clock.now().isoformat()})
+
     async def _process_batch(self, _key: str, items: list[dict[str, Any]]) -> None:
-        self.dex.db.kv_set("nova_batch_open", False)
         notes = " ".join(i["note"] for i in items if i.get("note"))
+        items = [i for i in items if i["kind"] != "note"]
         loaded: list[dict[str, Any]] = []
         for it in items:
             try:

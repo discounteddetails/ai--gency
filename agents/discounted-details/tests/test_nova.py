@@ -286,3 +286,15 @@ async def test_media_ignored_from_other_chats(frozen, tmp_path):
     await w.bot.handle_update({"message": {"chat": {"id": 1}, "photo": [{"file_id": "f0"}]}})
     await nova.debouncer.drain()
     assert nova.list() == []
+
+
+async def test_text_note_during_batch_goes_to_nova(frozen, tmp_path):
+    w, nova, vision, _ = make(tmp_path, [item("before"), item("after")])
+    nova.debouncer.seconds = 0.05
+    await w.bot.handle_update({"message": photo_msg("f0")})
+    await w.bot.handle_update({"message": {"chat": {"id": 9229985118}, "text": "Silver F-150 in Buda"}})
+    await w.bot.handle_update({"message": photo_msg("f1")})
+    await nova.debouncer.drain()
+    assert any("Added that note" in t for t in w.owner.texts("notify"))
+    assert "Silver F-150 in Buda" in vision.caption_calls[0]
+    assert not nova.collecting()
