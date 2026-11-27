@@ -298,6 +298,56 @@ class Jobs:
                  f"New leads overnight: {len(new_leads)} ({booked} booked)"]
         return "\n".join(lines)
 
+    async def book_spending(self) -> int:
+        """00:10: yesterday's AI costs per agent (and, on the 1st, the monthly bills) into the Spending tab."""
+        ledger = getattr(self.dex, "ledger", None)
+        if not ledger:
+            return 0
+        from app.services.spend import parse_fixed
+        y = clock.now().date() - timedelta(days=1)
+        rows = []
+        by: dict[str, dict] = {}
+        for r in ledger.rows(y):
+            a = by.setdefault(r["agent"], {"usd": 0.0, "requests": 0, "models": set()})
+            a["usd"] += r["usd"]
+            a["requests"] += r["requests"]
+            a["models"].add(r["model"])
+        for agent, a in sorted(by.items()):
+            rows.append({"date": y.isoformat(), "category": "AI (Anthropic)", "item": "Claude usage", "agent": agent,
+                         "requests": a["requests"], "amount_usd": round(a["usd"], 4),
+                         "notes": ", ".join(sorted(a["models"]))})
+        calls = ledger.counter("composio_calls", y, y)
+        if calls:
+            rows.append({"date": y.isoformat(), "category": "Usage", "item": "Composio tool calls", "agent": "",
+                         "requests": calls, "amount_usd": "", "notes": "count only (covered by your plan)"})
+        today = clock.now().date()
+        if today.day == 1:
+            settings = await self.dex.crm.get_settings()
+            for name, amt in parse_fixed(str(settings.get("monthly_fixed_costs") or "")):
+                rows.append({"date": today.isoformat(), "category": "Monthly bill", "item": name, "agent": "",
+                             "requests": "", "amount_usd": amt, "notes": f"{today:%B} subscription"})
+        for r in rows:
+            await self.dex.crm._run(self.dex.crm.store.append, "Spending", r)
+        return len(rows)
+
+    async def spend_alert(self) -> None:
+        """Hourly: one alert per day if AI costs pass daily_ai_alert_usd."""
+        ledger = getattr(self.dex, "ledger", None)
+        if not ledger:
+            return
+        today = clock.now().date()
+        if self.dex.db.kv_get("spend_alert_day") == today.isoformat():
+            return
+        limit = float((await self.dex.crm.get_settings()).get("daily_ai_alert_usd") or 0)
+        spent = sum(ledger.by_agent(today, today).values())
+        if limit and spent > limit:
+            self.dex.db.kv_set("spend_alert_day", today.isoformat())
+            by = ledger.by_agent(today, today)
+            top = ", ".join(f"{a} ${v:.2f}" for a, v in sorted(by.items(), key=lambda x: -x[1]))
+            await self.dex.owner.notify(f"💰 AI costs today are ${spent:.2f}, over your ${limit:.0f} alert ({top}). "
+                                        "Send /spend for details, or change daily_ai_alert_usd on the Settings tab.",
+                                        urgent=True)
+
     async def retention_cleanup(self) -> None:
         self.dex.db.prune_events(timedelta(days=7))
         self.dex.db.prune_history(timedelta(days=90))

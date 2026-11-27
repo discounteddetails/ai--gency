@@ -73,6 +73,8 @@ def build_scheduler(jobs: Jobs, poller: DMPoller, poll_seconds: int, poll_second
     s.add_job(safe(jobs.reconcile_jobs), CronTrigger(hour=2, minute=0), id="reconcile_jobs")
     s.add_job(safe(jobs.retention_cleanup), CronTrigger(day_of_week="sun", hour=3), id="retention")
     s.add_job(safe(jobs.health_ping), IntervalTrigger(minutes=5), id="health_ping")
+    s.add_job(safe(jobs.book_spending), CronTrigger(hour=0, minute=10), id="book_spending")
+    s.add_job(safe(jobs.spend_alert), CronTrigger(minute=20), id="spend_alert")
     if comments:
         async def comment_promos():
             await comments.run_once()

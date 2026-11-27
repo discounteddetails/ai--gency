@@ -50,7 +50,8 @@ TOOLS = [
     _t("nova_offer_story", "Have Nova make a Story image of the running offer and send it for approval.", {}, []),
     _t("business_snapshot", "Read live business data from the Sheet (the single source of truth).",
        {"section": {"type": "string", "enum": ["overview", "services", "settings", "promo", "jobs", "leads",
-                                               "approvals", "follow_ups", "content", "tasks", "activity"]}},
+                                               "approvals", "follow_ups", "content", "tasks", "activity",
+                                               "spending"]}},
        ["section"]),
     _t("update_task", "Create (no task_id) or update a tracked task in the Sheet's Tasks tab.",
        {"task_id": S, "title": S, "agents": S, "status": {"type": "string",
@@ -216,6 +217,12 @@ class Atlas:
             return await self._tool("nova_status", {})
         if section == "tasks":
             return [r for r in await crm._read("Tasks") if r.get("status") != "done"]
+        if section == "spending":
+            ledger = getattr(self.dex, "ledger", None)
+            if not ledger:
+                return {"error": "spending tracker is off"}
+            from app.services.spend import spend_text
+            return await spend_text(ledger, await crm.get_settings())
         if section == "activity":
             return (await crm._read("Activity"))[:30]
         # overview
@@ -339,6 +346,12 @@ class Atlas:
         open_tasks = [r for r in await self.dex.crm._read("Tasks") if r.get("status") not in ("done", "")]
         if open_tasks:
             parts.append("🧭 Open tasks: " + ", ".join(f"{r['task_id']} {r.get('title', '')}" for r in open_tasks[:6]))
+        ledger = getattr(self.dex, "ledger", None)
+        if ledger:
+            y = clock.now().date() - timedelta(days=1)
+            m0 = clock.now().date().replace(day=1)
+            yd, mo = sum(ledger.by_agent(y, y).values()), sum(ledger.by_agent(m0, clock.now().date()).values())
+            parts.append(f"💰 AI spend: ${yd:.2f} yesterday · ${mo:.2f} this month (/spend for details)")
         issues = await self.checks()
         if issues:
             parts.append("⚠️ Needs attention:\n" + "\n".join(f"• {i}" for i in issues[:8]))

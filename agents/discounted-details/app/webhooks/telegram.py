@@ -17,7 +17,7 @@ from app.core import Dex
 log = logging.getLogger(__name__)
 _TASKS: set = set()
 HELP = ("Commands:\n/today · /tomorrow — jobs\n/status — what's pending\n/pause · /resume — stop/start replies\n"
-        "/shadow_on · /shadow_off — approve every reply first\n/offer_story — Nova makes a Story image of your current offer\n/design <what you need> — Pixel designs posters and thumbnails (attach photos with /design as the caption)\n/logo — send your logo as a file with this caption\n/style — what Pixel remembers about your taste (/style forget to reset)\n/tasks — Atlas's open tasks · /brief — the morning brief now\nJust type to talk to Atlas (your operations manager). Start with Dex, Nova, or Pixel, to go straight to one of them.\nOr type anything, e.g. \"who's booked Saturday\" or "
+        "/shadow_on · /shadow_off — approve every reply first\n/offer_story — Nova makes a Story image of your current offer\n/design <what you need> — Pixel designs posters and thumbnails (attach photos with /design as the caption)\n/logo — send your logo as a file with this caption\n/style — what Pixel remembers about your taste (/style forget to reset)\n/tasks — Atlas's open tasks · /brief — the morning brief now\n/spend — what the agents cost today, this week and this month\nJust type to talk to Atlas (your operations manager). Start with Dex, Nova, or Pixel, to go straight to one of them.\nOr type anything, e.g. \"who's booked Saturday\" or "
         "\"promo 15% off interiors for dog owners\".\nApprovals: tap the buttons, or type yes A17 / no A17 / edit A17 <msg>.")
 TYPED = re.compile(r"^\s*(yes|y|ok|👍|no|n|edit)\b\s*(?:a?(\d+))?\s*(.*)$", re.IGNORECASE | re.DOTALL)
 
@@ -180,6 +180,9 @@ class OwnerBot:
                         return await dex.decide(aid, "price", price=int(price.group(1)))
                     return await dex.decide(aid, "approve")
                 return await dex.decide(aid, "decline")
+        if cmd == "/spend" and getattr(dex, "ledger", None):
+            from app.services.spend import spend_text
+            return await spend_text(dex.ledger, await dex.crm.get_settings())
         if cmd == "/tasks" and self.atlas:
             return await self.atlas.tasks_text()
         if cmd == "/brief" and self.atlas:

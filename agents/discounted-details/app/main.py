@@ -53,9 +53,17 @@ def build(settings=None):
               db=db, crm=crm, calendar=GoogleCalendar(sa, s.GOOGLE_CALENDAR_ID),
               maps=GoogleMaps(s.GOOGLE_MAPS_API_KEY.get_secret_value()),
               dm=DMClient(composio, db, s.FB_PAGE_ID), owner=owner)
-    runner = AgentRunner(dex, anthropic.AsyncAnthropic(api_key=s.ANTHROPIC_API_KEY.get_secret_value(),
-                                                       max_retries=3, timeout=60),
-                         s.ANTHROPIC_MODEL, s.DAILY_TOKEN_BUDGET)
+    from app.services.spend import Ledger, TrackedClient
+
+    ledger = Ledger(db)
+    dex.ledger = ledger
+    composio.on_call = lambda: ledger.count("composio_calls")
+    claude = anthropic.AsyncAnthropic(api_key=s.ANTHROPIC_API_KEY.get_secret_value(), max_retries=3, timeout=60)
+
+    def ai(agent: str) -> TrackedClient:  # every request's cost is booked to the agent that made it
+        return TrackedClient(claude, ledger, agent)
+
+    runner = AgentRunner(dex, ai("Dex"), s.ANTHROPIC_MODEL, s.DAILY_TOKEN_BUDGET)
 
     async def poll_alert(streak: int):
         await owner.notify("⚠️ Dex can't read Instagram/Messenger right now (5 failed checks). If this continues, "
@@ -71,7 +79,7 @@ def build(settings=None):
         from app.nova.service import Nova
         from app.nova.vision import Vision
 
-        bot.nova = Nova(dex, Vision(runner.client, s.ANTHROPIC_MODEL), MediaHost(s.NOVA_MEDIA_DIR, s.PUBLIC_BASE_URL),
+        bot.nova = Nova(dex, Vision(ai("Nova"), s.ANTHROPIC_MODEL), MediaHost(s.NOVA_MEDIA_DIR, s.PUBLIC_BASE_URL),
                         bot_token=s.TELEGRAM_BOT_TOKEN.get_secret_value(), ig_user_id=s.IG_USER_ID,
                         page_id=s.FB_PAGE_ID, batch_seconds=s.NOVA_BATCH_SECONDS)
     if s.PIXEL_ENABLED:
@@ -81,15 +89,15 @@ def build(settings=None):
         from app.pixel.service import Pixel
 
         host = bot.nova.host if bot.nova else MediaHost(s.NOVA_MEDIA_DIR, s.PUBLIC_BASE_URL)
-        bot.pixel = Pixel(dex, Designer(runner.client, s.PIXEL_MODEL), Renderer(s.CHROMIUM_PATH or None), host,
+        bot.pixel = Pixel(dex, Designer(ai("Pixel"), s.PIXEL_MODEL), Renderer(s.CHROMIUM_PATH or None), host,
                           s.PIXEL_ASSETS_DIR, bot_token=s.TELEGRAM_BOT_TOKEN.get_secret_value(), nova=bot.nova)
     from app.router import Router
 
-    bot.router = Router(runner.client, s.ROUTER_MODEL, pixel=bot.pixel, nova=bot.nova, dex=dex)
+    bot.router = Router(ai("Atlas"), s.ROUTER_MODEL, pixel=bot.pixel, nova=bot.nova, dex=dex)
     if s.ATLAS_ENABLED:
         from app.atlas.agent import Atlas
 
-        bot.atlas = Atlas(dex, runner.client, s.ATLAS_MODEL, pixel=bot.pixel, nova=bot.nova, jobs=jobs)
+        bot.atlas = Atlas(dex, ai("Atlas"), s.ATLAS_MODEL, pixel=bot.pixel, nova=bot.nova, jobs=jobs)
     return dex, runner, jobs, poller, bot
 
 

@@ -75,6 +75,7 @@ class ComposioClient:
         from composio import Composio
 
         self._c = Composio(api_key=api_key)
+        self.on_call = None  # spending tracker counts tool calls (Composio plans have call quotas)
         self._user_id = user_id
         self._accounts = {"INSTAGRAM": ig_account_id, "FACEBOOK": fb_account_id}
 
@@ -91,6 +92,8 @@ class ComposioClient:
         if slug not in ALLOWED_TOOLS:
             raise ToolNotAllowedError(slug)
         kwargs = self._account_kwargs(slug.split("_", 1)[0])
+        if self.on_call:
+            self.on_call()
         last: Exception | None = None
         tries = 1 if slug in NO_RETRY else 3
         for attempt in range(tries):
