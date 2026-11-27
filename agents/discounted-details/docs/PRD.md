@@ -203,11 +203,11 @@ Fixed commands are parsed in code first; the LLM handles only free text.
 ### 6.2 Pricing (`services/pricing.py`)
 
 - **FR-P1:** Prices are read from the **Services** tab (cached 5 minutes) and are never hardcoded except as the seed data in build step 5.
-- **FR-P2:** `total = base(package, size_class) + Σ addons + travel_fee + approved_override_delta`.
+- **FR-P2:** `total = base(package, size_class) + Σ addons + condition_surcharge + travel_fee + approved_override_delta`. `condition` is one of `standard` ($0), `worse` (+$20), `bad` (+$45) or `terrible` (+$70), read from the Services rows `condition_*`, one per job, on any package. Mold and biohazard jobs are custom quotes, not a tier.
 - **FR-P3:** Add-ons are only valid on `interior` and `full`. On `exterior` the tool returns the error `ADDON_NOT_APPLICABLE`.
 - **FR-P4:** `travel_fee = 2 × ceil(max(0, miles − 25))`, where `miles` is the one-way driving distance from `SERVICE_AREA_ORIGIN` ("Kyle, TX 78640") to the customer address, from the Google Routes API. Configurable through Settings: `travel_free_miles = 25`, `travel_fee_per_mile = 2`.
 - **FR-P5:** Over `custom_quote_over_miles` (default 60), the tool returns `requires_approval: true`.
-- **FR-P6:** Duration = the package duration plus add-on durations: Exterior 90 min, Interior 180 min, Full 240 min, pet hair +30 min, stains +30 min (assumption A3, editable in Services).
+- **FR-P6:** Duration = the package duration plus add-on and condition durations: Exterior 90 min, Interior 180 min, Full 240 min, pet hair +30 min, stains +30 min, condition worse +30 / bad +60 / terrible +90 min (assumptions A3 and A23, editable in Services).
 
 **Seed price table (Services tab):**
 
@@ -227,18 +227,24 @@ Fixed commands are parsed in code first; the LLM handles only free text.
 | full | Full Detail | van | 315 | 240 |
 | addon_pet_hair | Pet hair removal | any | 25 | 30 |
 | addon_stains | Stain removal | any | 35 | 30 |
+| condition_worse | Condition: worse than normal | any | 20 | 30 |
+| condition_bad | Condition: bad | any | 45 | 60 |
+| condition_terrible | Condition: terrible | any | 70 | 90 |
 
 **Worked examples (these become unit tests):**
 
-| Package | Class | Add-ons | Miles | Expected total |
-|---|---|---|---|---|
-| exterior | sedan | — | 8.0 | $75 |
-| full | large_suv | pet hair | 12.3 | $310 |
-| interior | van | stains, pet hair | 25.0 | $285 |
-| full | small_suv_truck | — | 25.1 | $257 (1 extra mile = $2) |
-| interior | sedan | — | 32.4 | $181 (8 extra miles = $16) |
-| full | van | — | 61.0 | requires_approval = true (base $315 + $72 travel shown) |
-| exterior | sedan | pet hair | 5 | error ADDON_NOT_APPLICABLE |
+| Package | Class | Add-ons | Condition | Miles | Expected total |
+|---|---|---|---|---|---|
+| exterior | sedan | — | standard | 8.0 | $75 |
+| full | large_suv | pet hair | standard | 12.3 | $310 |
+| interior | van | stains, pet hair | standard | 25.0 | $285 |
+| interior | sedan | pet hair | worse | 10 | $210 (165 + 25 + 20) |
+| full | small_suv_truck | — | bad | 30.2 | $312 (255 + 45 + 6 extra miles × $2) |
+| exterior | van | — | terrible | 5 | $175 (105 + 70); duration 180 min |
+| full | small_suv_truck | — | standard | 25.1 | $257 (1 extra mile = $2) |
+| interior | sedan | — | standard | 32.4 | $181 (8 extra miles = $16) |
+| full | van | — | standard | 61.0 | requires_approval = true (base $315 + $72 travel shown) |
+| exterior | sedan | pet hair | standard | 5 | error ADDON_NOT_APPLICABLE |
 
 ### 6.3 Availability and booking (`services/scheduling.py`)
 
@@ -429,10 +435,10 @@ All tools use `strict: true` and `additionalProperties: false`. Enum values are 
 
 | Tool | Modes | Input | Output (success) | Errors |
 |---|---|---|---|---|
-| `quote_price` | C A S O | `service` (exterior \| interior \| full), `size_class` (sedan \| small_suv_truck \| large_suv \| van), `addons` (array of pet_hair \| stains), `address` (string or null) | `{base, addons:[{name,price}], travel_miles, travel_fee, total, duration_min, in_service_area, requires_approval, approval_reason}` | ADDON_NOT_APPLICABLE, ADDRESS_NOT_FOUND, UPSTREAM_ERROR |
+| `quote_price` | C A S O | `service` (exterior \| interior \| full), `size_class` (sedan \| small_suv_truck \| large_suv \| van), `addons` (array of pet_hair \| stains), `condition` (standard \| worse \| bad \| terrible), `address` (string or null) | `{base, addons:[{name,price}], condition_surcharge, travel_miles, travel_fee, total, duration_min, in_service_area, requires_approval, approval_reason}` | ADDON_NOT_APPLICABLE, ADDRESS_NOT_FOUND, UPSTREAM_ERROR |
 | `check_service_area` | C O | `address` | `{miles, drive_minutes, in_service_area, travel_fee, formatted_address}` | ADDRESS_NOT_FOUND, UPSTREAM_ERROR |
-| `find_available_slots` | C A O | `service`, `size_class`, `addons`, `address`, `earliest_date` (YYYY-MM-DD or null), `latest_date` (or null), `time_of_day` (morning \| afternoon \| evening \| any), `max_results` (1–5) | `{slots:[{slot_id, start_iso, end_iso, label:"Tue, Dec 2 at 9:00 AM"}], note}` | ADDRESS_NOT_FOUND, NO_AVAILABILITY, UPSTREAM_ERROR |
-| `book_appointment` | C A O | `slot_id`, `customer_name`, `phone` (or null), `address`, `vehicle` {year, make, model, color or null, size_class}, `service`, `addons`, `notes` | `{job_id, calendar_event_id, start_label, total, duration_min}` | SLOT_TAKEN, SLOT_EXPIRED, PRICE_NEEDS_APPROVAL, UPSTREAM_ERROR |
+| `find_available_slots` | C A O | `service`, `size_class`, `addons`, `condition`, `address`, `earliest_date` (YYYY-MM-DD or null), `latest_date` (or null), `time_of_day` (morning \| afternoon \| evening \| any), `max_results` (1–5) | `{slots:[{slot_id, start_iso, end_iso, label:"Tue, Dec 2 at 9:00 AM"}], note}` | ADDRESS_NOT_FOUND, NO_AVAILABILITY, UPSTREAM_ERROR |
+| `book_appointment` | C A O | `slot_id`, `customer_name`, `phone` (or null), `address`, `vehicle` {year, make, model, color or null, size_class}, `service`, `addons`, `condition`, `notes` | `{job_id, calendar_event_id, start_label, total, duration_min}` | SLOT_TAKEN, SLOT_EXPIRED, PRICE_NEEDS_APPROVAL, UPSTREAM_ERROR |
 | `update_customer` | C A O | `first_name`, `last_name`, `phone`, `email`, `address`, `notes_append`, `tags_add` (array), `vehicle` (object or null) — all nullable | `{customer_id}` | UPSTREAM_ERROR |
 | `create_follow_up` | C A S O | `customer_id` (or null for current), `type` (reminder \| quote_follow_up \| review_request \| rebook \| custom), `due_iso`, `sender` (agent \| owner), `message`, `job_id` (or null) | `{follow_up_id}` | DO_NOT_CONTACT |
 | `request_owner_approval` | C O | `type` (discount \| custom_quote \| cancel \| reschedule \| complaint \| bulk_message), `summary` (≤ 200 characters), `customer_request`, `job_id`, `slot_id`, `standard_quote` (object or null), `draft_customer_message`, `recipient_filter` (object or null, bulk only) | `{approval_id, status:"pending"}` | — |
@@ -485,7 +491,7 @@ Implement app/services/sheets.py using gspread with service-account credentials 
 
 **Step 5: Pricing engine**
 ```
-Implement app/services/pricing.py per PRD §6.2. Function quote(service, size_class, addons, miles: float|None, services_rows, settings) -> Quote (a dataclass with the fields of the quote_price tool output in PRD §7.5). Raise PricingError("ADDON_NOT_APPLICABLE") for add-ons on exterior. travel_fee = fee_per_mile * ceil(max(0, miles - free_miles)). requires_approval is true when miles > custom_quote_over_miles. Duration = base duration + add-on durations. Write parametrized tests for every row of the "Worked examples" table in PRD §6.2, with exact expected totals.
+Implement app/services/pricing.py per PRD §6.2. Function quote(service, size_class, addons, condition, miles: float|None, services_rows, settings) -> Quote (a dataclass with the fields of the quote_price tool output in PRD §7.5). Raise PricingError("ADDON_NOT_APPLICABLE") for add-ons on exterior. travel_fee = fee_per_mile * ceil(max(0, miles - free_miles)). requires_approval is true when miles > custom_quote_over_miles. Duration = base duration + add-on durations + condition duration. Condition surcharge comes from the condition_* Services rows (standard = 0). Write parametrized tests for every row of the "Worked examples" table in PRD §6.2, with exact expected totals.
 ```
 
 **Step 6: Maps / service area**
@@ -771,7 +777,8 @@ Use this only if Composio's delay, cost, limits or missing Instagram Human Agent
 | size_class | large_suv |
 | address | 412 Elm St, Kyle, TX 78640 |
 | start / end | 2026-12-06 08:00 / 12:30 |
-| base_price / addons_price / travel_fee / override_price / total | 285 / 25 / 0 / (blank) / 310 |
+| condition | worse |
+| base_price / addons_price / condition_price / travel_fee / override_price / total | 285 / 25 / 20 / 0 / (blank) / 330 |
 | status | Booked \| Completed \| Cancelled \| No-show \| Rescheduled |
 | completed_by | auto \| owner |
 | calendar_event_id | abc123 |
@@ -1117,6 +1124,7 @@ New leads overnight: 2 (1 booked)
 | A16 | Launch in shadow mode for 7 days | env / `SHADOW OFF` |
 | A17 | Spanish messages are answered in Spanish | AGENT_INSTRUCTIONS §10 |
 | A18 | Payment is collected after the job; methods are unknown until the owner fills in Settings `payment_methods` | Settings |
+| A23 | Condition surcharge is one per job on any package; worse/bad/terrible add 30/60/90 minutes; the customer is told the owner will confirm any change before starting if the condition differs on arrival; mold and biohazards are custom quotes | Services rows / AGENT_INSTRUCTIONS §1.1 |
 | A22 | Only the owner's primary Google Calendar (discounteddetails@gmail.com) blocks time. The old "Todoist" and "Holidays in United States" calendars are ignored (owner confirmed they don't use Todoist anymore). | Settings `extra_busy_calendar_ids` |
 | A21 | The Human Agent window is used only for owner-approved replies to the customer's own inquiry, never for proactive messages | Code (FR-H4) |
 
@@ -1147,6 +1155,7 @@ New leads overnight: 2 (1 booked)
 - **Errors:** agreed: holding reply plus owner alert for unknowns; retry 3x then alert on integration failures, never booking if the calendar can't be confirmed; one clarifying question, then escalate. Reach the owner by texting their personal number.
 - **24-hour window:** "Just reply to customers when you can within the 24 hour window and I'll do everything outside that. I'll just need you to update the CRM and send me the messages to send them."
 - **Pricing (sedan):** Exterior $75, Interior $165, Full $225. Pet hair +$25, stains +$35.
+- **Condition (follow-up):** standard/light = set prices, worse = +$20, bad = +$45, terrible = +$70.
   - Small SUVs/trucks: +$30 Full, +$20 Interior, +$10 Exterior.
   - Large SUVs: +$60 Full, +$40 Interior, +$20 Exterior.
   - Vans: +$90 Full, +$60 Interior, +$30 Exterior.
