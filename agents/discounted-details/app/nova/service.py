@@ -245,10 +245,11 @@ class Nova:
             names.append(self.host.save(jpeg, "jpg"))
             previews.append(await run_blocking(for_vision, jpeg))
         facts = await self._facts(chosen, notes)
-        caption, problem = await self._caption(facts, previews)
+        offer = captions.is_offer(notes)
+        caption, problem = await self._caption(facts, previews, offer=offer)
         cid = self._new_id()
         warnings = [w for x in chosen for w in self._warnings(x, blurred=True)]
-        data = {"media": names, "caption": caption, "facts": facts, "warnings": warnings,
+        data = {"media": names, "caption": caption, "facts": facts, "offer": offer, "warnings": warnings,
                 "created_at": clock.now().isoformat()}
         self._save(cid, "post", "pending", data)
         await self._log(cid, "post", "pending", data)
@@ -286,14 +287,14 @@ class Nova:
             lines.append("City: Kyle, TX area (use Kyle unless the owner's note says otherwise)")
         return "\n".join(ln for ln in lines if ln)
 
-    async def _caption(self, facts: str, previews: list[bytes]) -> tuple[str, str]:
+    async def _caption(self, facts: str, previews: list[bytes], *, offer: bool = False) -> tuple[str, str]:
         recent = [c["data"].get("caption", "") for c in self.list(kind="post")[-5:]]
         problem = ""
         for _attempt in range(2):
             try:
                 raw = await self.vision.caption(facts + (f"\nFix this problem: {problem}" if problem else ""),
-                                                recent, previews)
-                return captions.check(raw), ""
+                                                recent, previews, offer=offer)
+                return captions.check(raw, allow_prices=offer), ""
             except captions.CaptionRejected as e:
                 problem = str(e)
             except Exception as e:
@@ -337,7 +338,7 @@ class Nova:
         if not c or c["status"] != "pending":
             return f"{cid} isn't waiting for a caption."
         try:
-            c["data"]["caption"] = captions.check(text)
+            c["data"]["caption"] = captions.check(text, allow_prices=True)  # the owner wrote it
         except captions.CaptionRejected as e:
             self.dex.db.kv_set("telegram_pending_input", {"approval_id": cid, "action": "nova_caption",
                                                           "at": clock.now().isoformat()})

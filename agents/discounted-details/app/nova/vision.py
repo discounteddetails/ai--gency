@@ -59,7 +59,7 @@ CAPTION_PROMPT = """Write an Instagram/Facebook caption for a Discounted Details
 Rules (all required):
 - About THIS specific car and job; never a generic template. Professional and friendly, 1-3 emojis.
 - Mention the city only (never a street, address, neighborhood or the customer's name).
-- No prices. Never the words perfect, flawless, guarantee or 100%. ("new" is fine.)
+- {price_rule} Never the words perfect, flawless, guarantee or 100%. ("new" is fine.)
 - End with a call to DM, e.g. "DM 'DETAIL' for a price on yours".
 - Exactly 5 hashtags at the very end that fit the city and mobile detailing (e.g. #kyletx #buda #austindetailing
   #mobiledetailing #cardetailing).
@@ -102,8 +102,11 @@ class Vision:
                                  "plates": [], "house_numbers": [], "faces": [], "other_private": "",
                                  "pair_key": ""}) for i in range(len(items))]
 
-    async def caption(self, facts: str, recent: list[str], photos: list[bytes]) -> str:
+    async def caption(self, facts: str, recent: list[str], photos: list[bytes], *, offer: bool = False) -> str:
+        price_rule = ("This post is about the owner's offer: state the offer clearly, with its prices and end date "
+                      "exactly as the owner's note gives them (never invent a price or a deal)." if offer
+                      else "No prices.")
         content = [{"type": "text", "text": CAPTION_PROMPT.format(
-            recent="\n".join(f"- {r[:200]}" for r in recent) or "- (none)", facts=facts)}]
+            recent="\n".join(f"- {r[:200]}" for r in recent) or "- (none)", facts=facts, price_rule=price_rule)}]
         content += [_img_block(p) for p in photos[:4]]
         return (await self._json(content, CAPTION_SCHEMA, effort="medium"))["caption"].strip()

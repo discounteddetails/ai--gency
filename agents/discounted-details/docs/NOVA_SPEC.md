@@ -43,7 +43,7 @@ Grow reach on Instagram and Facebook so more people DM the business, which Dex t
 - Professional and friendly, with 1–3 emojis.
 - Ends with a reason to DM, for example "DM 'DETAIL' for a price on yours".
 - **Exactly 5 hashtags** that fit the city and the work. For example: #kyletx #buda #austindetailing #mobiledetailing #cardetailing.
-- **No prices** for now.
+- **No prices**, except in posts about an offer (the owner's note mentions a deal, special or price): then the offer's prices and end date are stated exactly as the owner gave them. Captions the owner types may include prices.
 - **City only.** Never a street, address or neighborhood.
 - "New" is fine. **Never "perfect."** Also never "flawless," "guarantee" or "100%."
 - Never a customer's name or anything identifying.
@@ -55,7 +55,7 @@ Grow reach on Instagram and Facebook so more people DM the business, which Dex t
 | Nothing posts without the owner tapping ✅ | Approval state machine in `app/nova/service.py` |
 | Plates and house numbers blurred in every photo before preview | `app/nova/media.py` (the preview shows the blurred version that will be posted) |
 | Faces blurred in before/after posts; videos with risky frames are flagged | `media.py`, `service.py` |
-| Caption lint: blocked words, `$` prices, street-address patterns, more than 5 hashtags | `app/nova/captions.py` |
+| Caption lint: blocked words, `$` prices outside offer posts, street-address patterns, more than 5 hashtags | `app/nova/captions.py` |
 | Never comments or replies | The Composio allowlist only includes publish/create tools for Nova |
 | Media served publicly only through unguessable one-off URLs, deleted after 7 days | `/media/{token}` route, cleanup job |
 

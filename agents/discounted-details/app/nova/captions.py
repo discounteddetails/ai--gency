@@ -17,13 +17,22 @@ class CaptionRejected(Exception):
     pass
 
 
-def check(caption: str) -> str:
+OFFER = re.compile(r"\b(?:offer|deal|promo|sale|special|discount|black friday|cyber monday|\d+\s?% off)\b|\$\s?\d",
+                   re.IGNORECASE)
+
+
+def is_offer(note: str) -> bool:
+    """Prices are allowed only in posts about an offer (owner's rule, 2026-11-27)."""
+    return bool(OFFER.search(note or ""))
+
+
+def check(caption: str, *, allow_prices: bool = False) -> str:
     """Returns the cleaned caption, or raises CaptionRejected with a reason."""
     c = caption.strip()
     if m := BLOCKED.search(c):
         raise CaptionRejected(f"blocked word '{m.group(0)}'")
-    if PRICE.search(c):
-        raise CaptionRejected("prices aren't allowed in captions")
+    if not allow_prices and PRICE.search(c):
+        raise CaptionRejected("prices are only allowed in posts about an offer")
     if STREET.search(c):
         raise CaptionRejected("looks like a street address")
     tags = HASHTAG.findall(c)

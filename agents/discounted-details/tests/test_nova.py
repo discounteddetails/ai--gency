@@ -51,8 +51,9 @@ class FakeVision:
         assert len(items) == len(self.results)
         return [{"index": i, **r} for i, r in enumerate(self.results)]
 
-    async def caption(self, facts, recent, photos):
+    async def caption(self, facts, recent, photos, offer=False):
         self.caption_calls.append(facts)
+        self.offer_flags = [*getattr(self, "offer_flags", []), offer]
         return self.captions.pop(0) if self.captions else GOOD
 
 
@@ -312,3 +313,29 @@ async def test_activity_feed_rows(frozen, tmp_path):
     shorts = [r["short"] for r in rows]  # newest first
     assert shorts[0].startswith("Posts Tue 6:30 PM") and shorts[1] == "Story is live ✅"
     assert "Got 3 files 📸" in shorts and "Blurred 1 license plate" in shorts
+
+
+def test_offer_detection_and_prices():
+    assert captions.is_offer("Black Friday: free pet hair ($25 value)") and captions.is_offer("holiday special")
+    assert not captions.is_offer("Tahoe, Kyle") and not captions.is_offer("dropped off the keys")
+    assert "$25" in captions.check("Free pet hair removal ($25 value) 🐶 DM us", allow_prices=True)
+    with pytest.raises(captions.CaptionRejected):
+        captions.check("Perfect deal, $25 off", allow_prices=True)
+
+
+async def test_offer_post_allows_prices_only_when_noted(frozen, tmp_path):
+    offer_cap = "Black Friday: free pet hair removal ($25 value) 🖤 DM 'FRIDAY'\n#kyletx #buda #a #b #c"
+    w, nova, vision, _ = make(tmp_path, [item("before"), item("after")], captions_=[offer_cap])
+    await send(w, nova, [photo_msg("f0", "Black Friday deal: free pet hair ($25 value) til 11/30"), photo_msg("f1")])
+    assert vision.offer_flags == [True] and nova.get("N0001")["data"]["caption"] == offer_cap
+    w2, nova2, vision2, _ = make(tmp_path / "b", [item("before"), item("after")], captions_=[offer_cap])
+    await send(w2, nova2, [photo_msg("f0", "Tahoe, Kyle"), photo_msg("f1")])
+    assert vision2.offer_flags[0] is False and "$" not in nova2.get("N0001")["data"]["caption"]
+
+
+async def test_owner_edit_may_include_price(frozen, tmp_path):
+    w, nova, _, _ = make(tmp_path, [item("before"), item("after")])
+    await send(w, nova, [photo_msg("f0"), photo_msg("f1")])
+    await nova.handle_callback("N0001", "edit")
+    assert await w.bot.handle_text("Interior detail special, $150 this week only ✨ DM us") is None
+    assert "$150" in nova.get("N0001")["data"]["caption"]
