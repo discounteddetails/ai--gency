@@ -91,6 +91,9 @@ SETTINGS_ROWS: list[tuple[str, object, str]] = [
     ("promo_details", "", "The offer Dex honors without asking you (exact terms)"),
     ("promo_ends", "", "Last day of the offer (YYYY-MM-DD). After this, Dex stops honoring it"),
     ("promo_discount", 0, "Dollars off every booking made while the offer runs (0 = none)"),
+    ("promo_story_title", "", "Story image: small title on top (e.g. BLACK FRIDAY)"),
+    ("promo_story_headline", "", "Story image: big text, two lines split with | (e.g. $20 OFF|ANY DETAIL)"),
+    ("promo_story_lines", "", "Story image: smaller lines split with | (e.g. Book by Monday 11/30|We come to you)"),
 ]
 
 DEFAULT_SETTINGS: dict[str, object] = {k: v for k, v, _ in SETTINGS_ROWS}

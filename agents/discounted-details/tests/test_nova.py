@@ -370,9 +370,13 @@ async def test_offer_post_fb_feed_and_ig_story_posted_now(frozen, tmp_path):
     msg = await w.bot.handle_update({"callback_query": {"id": "1", "data": "N0001:now",
                                                         "message": {"chat": {"id": 9229985118}, "message_id": 7,
                                                                     "text": card["text"]}}})
+    # Stories get ONE generated offer image (previewed before posting), not the photos
+    story_name = nova.get("N0001")["data"]["story_media"][0]
+    assert any(m["kind"] == "media" and "Story image" in m["text"] for m in w.owner.messages)
+    assert Image.open(io.BytesIO(nova.host.path(story_name).read_bytes())).size == (1080, 1920)
     assert pub.slugs() == ["FACEBOOK_CREATE_MULTI_PHOTO_POST",
-                           "INSTAGRAM_CREATE_MEDIA_CONTAINER", "INSTAGRAM_POST_IG_USER_MEDIA_PUBLISH",
                            "INSTAGRAM_CREATE_MEDIA_CONTAINER", "INSTAGRAM_POST_IG_USER_MEDIA_PUBLISH"]
+    assert pub.calls[1][1]["image_url"].endswith(story_name)
     assert pub.calls[0][1]["message"] == offer_cap
     assert all(a.get("media_type") == "STORIES" for s, a in pub.calls if s == "INSTAGRAM_CREATE_MEDIA_CONTAINER")
     assert nova.get("N0001")["status"] == "published"
@@ -394,3 +398,41 @@ async def test_toggle_destinations_and_require_one(frozen, tmp_path):
     frozen.move_to(NOW.replace(hour=18, minute=31))
     await nova.publish_due()
     assert pub.slugs() == ["FACEBOOK_UPLOAD_PHOTO", "FACEBOOK_PUBLISH_PAGE_PHOTO_STORY"] * 2
+
+
+
+async def test_pending_offer_post_gets_story_image_before_posting(frozen, tmp_path):
+    """Posts prepared before story images existed: the first Post now shows the image instead of posting."""
+    w, nova, _, pub = make(tmp_path, [item("after")])
+    await send(w, nova, [photo_msg("f0", "Black Friday deal")])
+    data = nova.get("N0001")["data"]
+    data.pop("story_media", None)
+    data["targets"] = ["fbf", "igs"]
+    nova._save("N0001", "post", "pending", data)
+    r = await nova.handle_callback("N0001", "now")
+    assert "here's the Story image" in r and pub.calls == []
+    await nova.handle_callback("N0001", "now")
+    assert "INSTAGRAM_CREATE_MEDIA_CONTAINER" in pub.slugs()
+
+
+def test_story_graphic_renders():
+    from app.nova.graphic import story_graphic
+    img = Image.open(io.BytesIO(story_graphic(None, title="Black Friday", headline=["$20 OFF", "ANY DETAIL"],
+                                              lines=["Book by Monday 11/30"], cta='Reply "FRIDAY" to claim')))
+    assert img.size == (1080, 1920)
+
+
+async def test_offer_story_command(frozen, tmp_path):
+    w, nova, _, pub = make(tmp_path, [item("after")])
+    assert "no offer running" in await w.bot.handle_text("/offer_story")
+    for k, v in {"promo_keyword": "FRIDAY", "promo_details": "$20 off any detail", "promo_ends": "2026-12-05",
+                 "promo_discount": "20", "promo_dm": "hi"}.items():
+        w.store.append("Settings", {"key": k, "value": v})
+    w.crm.invalidate_cache()
+    assert await w.bot.handle_text("/offer_story") is None
+    card = cards(w)[-1]
+    assert "OFFER STORY" in card["text"] and card["buttons"][0][0] == ("✅ Post Story", "N0001:post")
+    assert any("Story image" in m["text"] for m in w.owner.messages if m["kind"] == "media")
+    await nova.handle_callback("N0001", "post")
+    assert pub.slugs() == ["INSTAGRAM_CREATE_MEDIA_CONTAINER", "INSTAGRAM_POST_IG_USER_MEDIA_PUBLISH",
+                           "FACEBOOK_UPLOAD_PHOTO", "FACEBOOK_PUBLISH_PAGE_PHOTO_STORY"]

@@ -17,7 +17,7 @@ from app.core import Dex
 log = logging.getLogger(__name__)
 _TASKS: set = set()
 HELP = ("Commands:\n/today · /tomorrow — jobs\n/status — what's pending\n/pause · /resume — stop/start replies\n"
-        "/shadow_on · /shadow_off — approve every reply first\nOr type anything, e.g. \"who's booked Saturday\" or "
+        "/shadow_on · /shadow_off — approve every reply first\n/offer_story — Nova makes a Story image of your current offer\nOr type anything, e.g. \"who's booked Saturday\" or "
         "\"promo 15% off interiors for dog owners\".\nApprovals: tap the buttons, or type yes A17 / no A17 / edit A17 <msg>.")
 TYPED = re.compile(r"^\s*(yes|y|ok|👍|no|n|edit)\b\s*(?:a?(\d+))?\s*(.*)$", re.IGNORECASE | re.DOTALL)
 
@@ -132,6 +132,8 @@ class OwnerBot:
         if cmd == "/shadow_off":
             dex.db.kv_set("shadow_mode", False)
             return "Shadow mode OFF: Dex replies on its own (approvals still come to you)."
+        if cmd == "/offer_story" and self.nova:
+            return await self.nova.offer_story() or None
         if cmd == "/status":
             return await status_text(dex)
         if cmd in ("/today", "/tomorrow"):

@@ -12,6 +12,7 @@ from typing import Any
 from app import clock
 from app.core import Dex
 from app.nova import captions
+from app.nova.graphic import story_graphic
 from app.nova.media import (
     Box,
     MediaError,
@@ -306,6 +307,7 @@ class Nova:
                                           f"{' of the ' + vehicle if vehicle else ''} and wrote the caption",
                                   "Before/after post ready")
         await self.dex.owner.post_media("photo", [self.host.url(n) for n in names], f"{cid} · POST preview", None)
+        await self._ensure_story_graphic(cid, data)
         await self._post_card(cid, data, problem)
 
     async def _post_card(self, cid: str, data: dict[str, Any], problem: str = "", message_id: int | None = None) -> None:
@@ -400,10 +402,13 @@ class Nova:
             targets = [x for x in targets if x != t] if t in targets else targets + [t]
             data["targets"] = [x for x in TARGETS if x in targets]
             self._save(cid, "post", "pending", data)
+            await self._ensure_story_graphic(cid, data)
             await self._post_card(cid, data, message_id=message_id)
             return ""
         if action in ("post", "now") and c["kind"] == "post" and not _targets(data):
             return f"Pick at least one place to post {cid} first."
+        if action in ("post", "now") and c["kind"] == "post" and await self._ensure_story_graphic(cid, data):
+            return f"🖼 {cid}: here's the Story image. If it looks good, tap {'🚀 Post now' if action == 'now' else '🕕'} again."
         if action == "now" and c["kind"] == "post":
             self._save(cid, "post", "publishing", data)
             return await self._publish_post(cid, data)
@@ -458,9 +463,55 @@ class Nova:
                 n += 1
         return n
 
+    async def _ensure_story_graphic(self, cid: str, data: dict[str, Any]) -> bool:
+        """Offer posts going to Stories use ONE generated image with the deal on it (owner's rule, 2026-11-27).
+        Returns True if a new image was made (and previewed), so the owner sees it before it posts."""
+        if not data.get("offer") or not ({"igs", "fbs"} & set(_targets(data))) or data.get("story_media"):
+            return False
+        settings = await self.dex.crm.get_settings()
+        promo = active_promo(settings) or {}
+        split = lambda v: [x.strip() for x in str(v or "").split("|") if x.strip()]  # noqa: E731
+        headline = split(settings.get("promo_story_headline")) or (
+            [f"${promo['discount']} OFF", "ANY DETAIL"] if promo.get("discount") else ["LIMITED", "TIME OFFER"])
+        title = str(settings.get("promo_story_title") or "Special offer")
+        lines = split(settings.get("promo_story_lines")) or ([f"Ends {promo['ends']}"] if promo.get("ends") else [])
+        kw = promo.get("keyword")
+        cta = f'Reply "{kw}" to claim' if kw else "DM us to book"
+        bg = None
+        for n in data["media"]:  # first real photo (not a flyer) as the background
+            p = self.host.path(n)
+            if p:
+                bg = p.read_bytes()
+                break
+        jpeg = await run_blocking(lambda: story_graphic(bg, title=title, headline=headline, lines=lines, cta=cta))
+        name = self.host.save(jpeg, "jpg")
+        data["story_media"] = [name]
+        self._save(cid, "post", self.get(cid)["status"] if self.get(cid) else "pending", data)
+        await self.dex.owner.post_media("photo", [self.host.url(name)],
+                                        f"{cid} · Story image (the only picture that goes to Stories)", None)
+        return True
+
+    async def offer_story(self) -> str:
+        """/offer_story: one Story image with the running offer, previewed with Post Story / Skip (IG + FB)."""
+        if not active_promo(await self.dex.crm.get_settings()):
+            return "There's no offer running. Set it up on the Settings tab (promo_ rows) first."
+        recent = [c for c in self.list(kind="post") if c["data"].get("media")]
+        tmp = {"offer": True, "targets": ["igs"], "media": recent[-1]["data"]["media"] if recent else []}
+        cid = self._new_id()
+        self._save(cid, "story", "pending", tmp)
+        await self._ensure_story_graphic(cid, tmp)
+        data = {"category": "offer", "media": tmp["story_media"], "media_kind": "photo", "warnings": [],
+                "created_at": clock.now().isoformat()}
+        self._save(cid, "story", "pending", data)
+        await self._log(cid, "story", "pending", data)
+        await self.dex.owner.post_buttons(f"{cid} · OFFER STORY → Instagram + Facebook Story (image above)",
+                                          [[("✅ Post Story", f"{cid}:post"), ("❌ Skip", f"{cid}:skip")]])
+        return ""
+
     def cleanup_media(self) -> int:
         """Delete media older than 7 days, except anything still waiting for approval or a posting slot."""
-        keep = {n for c in self.list() if c["status"] in ("pending", "scheduled") for n in c["data"].get("media", [])}
+        keep = {n for c in self.list() if c["status"] in ("pending", "scheduled")
+                for n in c["data"].get("media", []) + c["data"].get("story_media", [])}
         return self.host.cleanup(7, keep)
 
     # ------------------------------------------------------------------ publishing (Composio)
@@ -532,7 +583,8 @@ class Nova:
             if t not in targets:
                 continue
             ok = 0
-            for u in urls[:MAX_STORY_FRAMES]:  # stories have no caption; each photo is its own frame
+            frames = [self.host.url(n) for n in data.get("story_media", [])] or urls[:MAX_STORY_FRAMES]
+            for u in frames:  # stories have no caption; each photo is its own frame
                 try:
                     await fn(u)
                     ok += 1
