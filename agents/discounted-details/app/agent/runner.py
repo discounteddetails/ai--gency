@@ -170,6 +170,13 @@ class AgentRunner:
                         await asyncio.sleep(10 * (attempt + 1))
                         continue
                     log.error("Claude request rejected: %s", e)
+                    from app.services.ai_errors import alert_credits, is_credit_error
+                    if is_credit_error(e):
+                        await alert_credits(dex)
+                        if customer:
+                            await dex.owner.notify(f"✉️ {who} messaged and Dex couldn't answer (no credits): "
+                                                   f"\"{body[:200]}\". Reply to them yourself.", urgent=True)
+                        return ctx
                     await dex.owner.notify(f"⚠️ Dex error ({e.status_code}) on a message from {who}. "
                                            "Please reply to them yourself.", urgent=True)
                     return ctx

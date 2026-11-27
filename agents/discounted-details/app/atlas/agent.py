@@ -103,6 +103,10 @@ class Atlas:
                     fallbacks="default")
             except anthropic.APIError as e:
                 log.error("Atlas request failed: %s", e)
+                from app.services.ai_errors import alert_credits, is_credit_error
+                if is_credit_error(e):
+                    await alert_credits(self.dex)
+                    return ""
                 report = "⚠️ Atlas hit an error reaching Claude. Try again in a minute, or message Dex/Nova/Pixel directly."
                 break
             if runner:

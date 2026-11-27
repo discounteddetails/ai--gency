@@ -304,6 +304,10 @@ class Pixel:
         except Exception as e:
             log.exception("design failed")
             self._save(jid, "failed", data)
+            from app.services.ai_errors import alert_credits, is_credit_error
+            if is_credit_error(e):
+                await alert_credits(self.dex)
+                return
             await self.dex.owner.notify(f"⚠️ Pixel couldn't finish {jid} ({type(e).__name__}). Try again in a "
                                         "minute, or simplify the request.", urgent=True)
             return

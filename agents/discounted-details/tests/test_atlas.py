@@ -153,3 +153,20 @@ def test_atlas_prompt_has_communication_rules():
                  "Never call something done without verifying it", "plain text"):
         assert must in p
     assert "## Approval rules (hard)" in p and "delegate_to_dex" in p  # responsibilities unchanged
+
+
+async def test_out_of_credits_sends_one_clear_alert(frozen, tmp_path):
+    import anthropic
+    import httpx
+    w, atlas, brain, _, _ = make(tmp_path)
+    req = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    err = anthropic.BadRequestError("Your credit balance is too low to access the Anthropic API.",
+                                    response=httpx.Response(400, request=req), body=None)
+
+    async def boom(**kw):
+        raise err
+    brain.create = boom
+    await w.bot.handle_text("how's business")
+    await w.bot.handle_text("and tomorrow?")
+    alerts = [t for t in w.owner.texts("notify") if "out of credits" in t]
+    assert len(alerts) == 1 and "console.anthropic.com" in alerts[0]

@@ -196,6 +196,10 @@ class Nova:
             results = await self.vision.classify([x["frames"] for x in loaded])
         except Exception as e:
             log.exception("vision failed")
+            from app.services.ai_errors import alert_credits, is_credit_error
+            if is_credit_error(e):
+                await alert_credits(self.dex)
+                return
             await self.dex.owner.notify(f"⚠️ Nova couldn't look at your photos right now ({type(e).__name__}). "
                                         "Try sending them again in a few minutes.", urgent=True)
             return
