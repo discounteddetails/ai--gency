@@ -164,7 +164,8 @@ Fixed commands are parsed in code first; the LLM handles only free text.
 |---|---|---|
 | `daily_summary` | 6:30 AM daily | Telegram post: today's jobs, number of owner follow-ups due today (with the Sheet link), pending approvals, last night's new leads |
 | `send_due_agent_followups` | Every 15 min, 7 AM–8 PM | Due follow-ups with `sender=agent` are sent by DM if the 24-hour window is open. Otherwise they're switched to `sender=owner`. They never go out through the Human Agent window. |
-| `quote_checkins` | Hourly | Leads who received a quote and have no booking, whose last inbound message was 18–22 hours ago, with no check-in sent and not Do Not Contact: the agent writes and sends one check-in. If none was sent and 72 hours have passed, an owner follow-up is created. After 14 days with no booking, the lead is marked `Lost`. |
+| `quote_checkins` | Hourly | Leads who received a quote and haven't booked, not Do Not Contact: (1) 18–22 hours after their last message, Dex sends one check-in DM itself (inside the 24-hour window). (2) Once they've been quiet for 24 hours, Dex queues **owner-sent** follow-ups for days **2, 5 and 7** after their last message (10 AM each day, three different personalized messages). The sequence is cancelled when they reply, book or opt out, and restarts if they go quiet again after a new quote. After 14 days without booking, the lead is marked `Lost`. (Owner decision: Meta doesn't allow automated follow-ups outside 24 hours, so the owner sends days 2/5/7 from the app.) |
+| `owner_followup_digest` | 10:00 AM daily | Posts every owner follow-up due today to Telegram, one card each with the ready-to-send text, where to send it (`@username`), and **✅ Sent / ⏭ Skip** buttons that update the Follow-ups tab |
 | `reminders` | 9:00 AM daily | For tomorrow's jobs: send the reminder by DM if the window is open, otherwise mark the reminder follow-up as due for the owner. These are already created at booking. |
 | `auto_complete_jobs` | 9:00 PM daily | Jobs with status `Booked` whose end time has passed become `Completed` (`completed_by = auto`). The owner can change this to `No-show` or `Cancelled` in the Sheet. |
 | `post_job_followups` | 9:05 PM daily | For each newly completed job, create a `review_request` follow-up due the next day at 10 AM (or send now if the window is open), and a `rebook` follow-up due 90 days later. Skipped for Do Not Contact customers and for customers who already got a review request in the last 180 days. |
@@ -1120,7 +1121,7 @@ New leads overnight: 2 (1 booked)
 | A11 | Upset customers get one fixed, neutral holding message automatically; the real reply needs approval | AGENT_INSTRUCTIONS §4.4 |
 | A12 | Rebook reminder after 90 days; review request the day after a job, at most once per 180 days | Settings `rebook_days` |
 | A13 | Jobs auto-complete at 9 PM unless the owner marks No-show/Cancelled | — |
-| A14 | One quote check-in within the window (about 20 hours), then one owner follow-up at 72 hours, then `Lost` at 14 days | code constants |
+| A14 | **Owner decision:** one automatic quote check-in inside the 24-hour window, then owner-sent follow-ups on days 2, 5 and 7 (posted to Telegram at 10 AM), then `Lost` at 14 days | `app/jobs/tasks.py` (`QUOTE_SEQUENCE_DAYS`) |
 | A15 | When the owner replies manually in the inbox, the agent stays quiet on that thread for 12 hours | env `OWNER_TAKEOVER_HOURS` |
 | A16 | Launch in shadow mode for 7 days | env / `SHADOW OFF` |
 | A17 | Spanish messages are answered in Spanish | AGENT_INSTRUCTIONS §10 |

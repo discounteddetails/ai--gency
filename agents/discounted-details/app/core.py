@@ -109,6 +109,7 @@ class Dex:
                                     "text": text, "attachment_url": ", ".join(ev.attachments),
                                     "message_id": ev.mid})
         await self.crm.update_customer(customer["customer_id"], {"last_inbound_at": ev.timestamp})
+        await self.cancel_quote_followups(customer["customer_id"], "Customer replied")
         who = self.display_name(customer)
         if self.crm.is_dnc(customer):
             await self.owner.notify(f"🚫 Do-Not-Contact customer {who} ({CHANNEL_LABEL[ev.channel]}) messaged again: "
@@ -211,6 +212,14 @@ class Dex:
                                          "due_at": clock.now(), "sender": "owner", "channel": thread["channel"],
                                          "message": text, "created_by": "agent"})
         return "owner"
+
+    async def cancel_quote_followups(self, customer_id: str, why: str) -> int:
+        n = 0
+        for fu in await self.crm.list_follow_ups(status="Open", customer_id=customer_id):
+            if fu.get("type") == "quote_follow_up":
+                await self.crm.update_follow_up(fu["follow_up_id"], {"status": "Cancelled", "notes": why})
+                n += 1
+        return n
 
     async def mark_dnc(self, customer: dict[str, Any], reason: str) -> None:
         cid = customer["customer_id"]
@@ -457,6 +466,7 @@ class Dex:
         else:
             await self.owner.notify(f"⚠️ Booked {customer_name} for {clock.label(start)} on your calendar, but the "
                                     "Jobs row failed to save. It will be back-filled tonight.", urgent=True)
+        await self.cancel_quote_followups(customer["customer_id"], "Booked")
         state.booking_succeeded = True
         state.verified_amounts |= q.amounts() | {total}
         return {"job_id": job_id, "calendar_event_id": event_id, "start_label": clock.label(start),

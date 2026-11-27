@@ -17,6 +17,25 @@ from app.webhooks.telegram import jobs_text
 
 log = logging.getLogger(__name__)
 SERVICE_LABEL = {"exterior": "Exterior Detail", "interior": "Interior Detail", "full": "Full Detail"}
+CHANNEL_NAMES = {"instagram": "Instagram", "messenger": "Messenger"}
+QUOTE_SEQUENCE_DAYS = (2, 5, 7)
+
+
+def quote_followup_text(dex: Dex, customer: dict[str, Any], step: int) -> str:
+    q = dex.db.kv_get(f"last_quote:{customer['customer_id']}", {}) or {}
+    first = str(customer.get("first_name") or "").strip()
+    hi = f"Hi {first}!" if first else "Hi!"
+    service = q.get("service_name") or "detail"
+    car = q.get("vehicle") or "your car"
+    car_ref = f"your {car}" if q.get("vehicle") else car
+    price = f" (${q['total']})" if q.get("total") else ""
+    if step <= 2:
+        return f"{hi} Just following up on the {service} quote for {car_ref}{price}. I have a few openings this week if you'd like to grab one."
+    if step <= 5:
+        return (f"Hey{' ' + first if first else ''}, wanted to check back in about getting {car_ref} detailed. "
+                "Happy to work around your schedule. Want me to send over a few times?")
+    return (f"{hi} Last check-in from me. If you'd still like the {service} for {car_ref}, just reply here and I'll "
+            "get you scheduled. No worries if now isn't the right time!")
 
 
 def _dt(v: Any) -> datetime | None:
@@ -114,15 +133,44 @@ class Jobs:
                 except ComposioError:
                     pass
                 dex.db.upsert_thread(t["thread_id"], quote_checkin_sent=True)
-            elif not t["quote_checkin_sent"] and age >= timedelta(hours=72) \
-                    and not dex.db.kv_get(f"quote_owner_fu:{t['thread_id']}"):
-                await dex.crm.create_follow_up({"customer_id": c["customer_id"], "customer_name": dex.display_name(c),
-                                                "type": "quote_follow_up", "due_at": now, "sender": "owner",
-                                                "channel": t["channel"], "created_by": "scheduler",
-                                                "message": await render(dex, "quote_follow_up", c, None)})
-                dex.db.kv_set(f"quote_owner_fu:{t['thread_id']}", True)
+            # Once they've gone quiet for 24h after a quote, queue the day 2/5/7 follow-ups (once per quiet spell).
+            if t.get("last_inbound_at") and age >= timedelta(hours=24) and \
+                    dex.db.kv_get(f"quote_seq:{t['thread_id']}") != t["last_inbound_at"].isoformat():
+                await self._create_quote_sequence(c, t)
             if age >= timedelta(days=14):
                 await dex.crm.update_customer(c["customer_id"], {"lead_status": "Lost"})
+
+    async def _create_quote_sequence(self, c: dict[str, Any], t: dict[str, Any]) -> None:
+        """Owner-sent follow-ups on days 2, 5 and 7 after a quote (Dex drafts them; the owner sends from the app,
+        because Meta doesn't allow automated follow-ups outside the 24-hour window)."""
+        dex = self.dex
+        quiet_since = t["last_inbound_at"]  # days count from their last message
+        for step in QUOTE_SEQUENCE_DAYS:
+            due = (quiet_since + timedelta(days=step)).replace(hour=10, minute=0, second=0, microsecond=0)
+            await dex.crm.create_follow_up({
+                "customer_id": c["customer_id"], "customer_name": dex.display_name(c), "type": "quote_follow_up",
+                "due_at": due, "sender": "owner", "channel": t["channel"], "created_by": "scheduler",
+                "message": quote_followup_text(dex, c, step), "notes": f"Quote follow-up, day {step}"})
+        dex.db.kv_set(f"quote_seq:{t['thread_id']}", quiet_since.isoformat())
+
+    async def owner_followup_digest(self) -> int:
+        """10 AM: post every owner follow-up due today to Telegram, one message each, ready to copy and send."""
+        dex, now, n = self.dex, clock.now(), 0
+        due = [f for f in await dex.crm.list_follow_ups(status="Open", sender="owner")
+               if (d := _dt(f.get("due_at"))) and d <= now.replace(hour=23, minute=59)]
+        if not due:
+            return 0
+        await dex.owner.notify(f"📋 {len(due)} message{'s' if len(due) != 1 else ''} to send today. Copy each one into "
+                               "the customer's chat, then tap ✅ Sent.", urgent=True)
+        for f in due:
+            c = await dex.crm.get_customer(f["customer_id"]) or {}
+            where = (f"Instagram @{c['instagram_username']}" if f.get("channel") == "instagram" and c.get("instagram_username")
+                     else f"{CHANNEL_NAMES.get(f.get('channel', ''), 'DM')}: {f.get('customer_name') or dex.display_name(c)}")
+            label = (f.get("notes") or f.get("type", "")).replace("_", " ")
+            await dex.owner.post_buttons(f"{f['follow_up_id']} · {label}\nSend to {where}:\n\n{f.get('message', '')}",
+                                         [[("✅ Sent", f"{f['follow_up_id']}:sent"), ("⏭ Skip", f"{f['follow_up_id']}:skip")]])
+            n += 1
+        return n
 
     # ------------------------------------------------------------ jobs lifecycle
     async def auto_complete_jobs(self) -> list[str]:

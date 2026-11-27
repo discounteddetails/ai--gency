@@ -66,6 +66,13 @@ class OwnerBot:
             aid, action = data.split(":", 1)
         except ValueError:
             return
+        if aid.startswith("F") and action in ("sent", "skip"):
+            await self.dex.crm.update_follow_up(aid, {"status": "Sent" if action == "sent" else "Skipped",
+                                                      **({"sent_at": clock.now()} if action == "sent" else {})})
+            if cq.get("message", {}).get("message_id"):
+                await self.dex.owner.mark_decided(cq["message"]["message_id"],
+                                                  f"{aid} · {'✅ Sent' if action == 'sent' else '⏭ Skipped'}")
+            return
         appr = self.dex.db.get_approval(aid)
         if not appr or appr["status"] != "pending":
             await self.dex.owner.notify(f"{aid} was already decided.", urgent=True)

@@ -205,7 +205,7 @@ Follow-ups are the business's to-do list in the Sheet. Each has a due date, type
 
 | Situation | Type | Due | Sender |
 |---|---|---|---|
-| Customer got a quote but didn't book | `quote_follow_up` | Created by the scheduler. Don't create it yourself. | Agent |
+| Customer got a quote but didn't book | `quote_follow_up` | Created by the scheduler: one check-in from you about 20 hours later (inside the 24-hour window), then owner-sent follow-ups on days 2, 5 and 7 after their last message. Don't create these yourself. | Agent (day 1), owner (days 2, 5, 7) |
 | Appointment booked | `reminder` | 9:00 AM the day before the appointment. The scheduler creates it automatically when `book_appointment` succeeds. | Agent |
 | Customer asks "check back with me next month" or similar | `custom` | The date they asked for | Owner |
 | Owner asked you to follow up about something | `custom` | As instructed | As instructed |

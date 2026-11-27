@@ -98,6 +98,10 @@ async def quote_price(ctx, service, size_class, addons, condition, address):
             await ctx.dex.crm.update_customer(ctx.customer["customer_id"], {"lead_status": "Quoted"})
             ctx.customer["lead_status"] = "Quoted"
         ctx.dex.db.upsert_thread(ctx.thread["thread_id"], last_quote_at=clock.now())
+        vehicles = await ctx.dex.crm.list_vehicles(ctx.customer["customer_id"])
+        car = " ".join(str(v.get(k) or "") for v in vehicles[-1:] for k in ("make", "model")).strip()
+        ctx.dex.db.kv_set(f"last_quote:{ctx.customer['customer_id']}",
+                          {"service_name": q.service_name, "total": q.total, "vehicle": car})
     return q.to_dict()
 
 
