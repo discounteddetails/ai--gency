@@ -1108,7 +1108,7 @@ New leads overnight: 2 (1 booked)
 |---|---|---|
 | A1 | The travel fee uses one-way **driving** miles (Google Maps) beyond 25, rounded up per mile. *Confirmed by the owner.* | Settings tab |
 | A2 | Add-ons (pet hair, stains) apply only to Interior and Full Details | Services tab / code |
-| A3 | Pet hair and stain removal each add 30 minutes to the job; larger vehicles take the same time as sedans | Services `duration_min` |
+| A3 | **Confirmed by the owner:** pet hair and stain removal each add 30 minutes. Larger vehicles take the same time as sedans (assumption). | Services `duration_min` |
 | A4 | **Confirmed by the owner:** pickups up to half-ton, including full-size like the F-150, are priced as **Small SUV / Truck**. Large SUV = three-row and full-size SUVs. Heavy-duty trucks (F-250 and up), RVs and boats remain custom quotes (assumption). | AGENT_INSTRUCTIONS §1.1 |
 | A5 | Works any day of the week, 7 AM–8 PM; days off are blocked by putting a Busy event on Google Calendar | Settings / Calendar |
 | A6 | 15-minute buffer plus drive time between jobs; drive time from home base (Kyle) for the first job of the day | Settings `buffer_minutes`, `home_base_address` |
@@ -1160,7 +1160,7 @@ New leads overnight: 2 (1 booked)
   - Small SUVs/trucks: +$30 Full, +$20 Interior, +$10 Exterior.
   - Large SUVs: +$60 Full, +$40 Interior, +$20 Exterior.
   - Vans: +$90 Full, +$60 Interior, +$30 Exterior.
-- **Durations:** Interior 3 hours, Exterior 1.5 hours, Full 4 hours.
+- **Durations:** Interior 3 hours, Exterior 1.5 hours, Full 4 hours. Pet hair and stains add 30 minutes each (confirmed).
 - **Hours:** 7 AM–8 PM, no job maximum, never overlap calendar events, minimum 3 hours' notice to book.
 - **Tone:** professional and friendly. Signs as "Discounted Details."
 - **Follow-up:** "Twilio's not gonna work, take that out." Owner chose a Telegram bot for alerts and approvals, and the owner follow-up list (no customer texting) for late contact.
