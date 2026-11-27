@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     FB_PAGE_ID: str
     IG_USER_ID: str
     POLL_SECONDS: int = 60
-    POLL_SECONDS_NIGHT: int = 300  # 10 PM - 6 AM
+    POLL_SECONDS_NIGHT: int = 900  # 10 PM - 6 AM (15 min)
 
     # Google
     GOOGLE_SERVICE_ACCOUNT_JSON: SecretStr

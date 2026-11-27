@@ -179,7 +179,7 @@ Fixed commands are parsed in code first; the LLM handles only free text.
 ### 6.1 Messaging (Instagram + Messenger via Composio)
 
 - **FR-M1: Polling.** Meta can't notify Dex directly when the connection goes through Composio, so a poller job checks for new messages:
-  - every `POLL_SECONDS` (default 60) from 6 AM to 10 PM, and every `POLL_SECONDS_NIGHT` (default 300, owner's choice) from 10 PM to 6 AM,
+  - every `POLL_SECONDS` (default 60) from 6 AM to 10 PM, and every `POLL_SECONDS_NIGHT` (default 900 = 15 min, owner's choice) from 10 PM to 6 AM,
   - by calling `INSTAGRAM_LIST_ALL_CONVERSATIONS` and `FACEBOOK_GET_PAGE_CONVERSATIONS`.
 
   For each conversation whose `updated_time` is newer than the stored `last_polled_at`, it fetches the new messages (`INSTAGRAM_LIST_ALL_MESSAGES` / `INSTAGRAM_GET_CONVERSATION`, `FACEBOOK_GET_CONVERSATION_MESSAGES`) and turns each into a normalized `InboundEvent(channel, sender_id, mid, text, attachments, timestamp, from_business)`. At most one poll runs at a time.
@@ -605,7 +605,7 @@ Add a Dockerfile (python:3.12-slim, uv sync --frozen --no-dev, non-root user, CM
   | Mark seen | `INSTAGRAM_MARK_SEEN` | `FACEBOOK_MARK_MESSAGE_SEEN` |
   | Raw Graph call (Human Agent test only) | `composio proxy` | — |
 
-- **No push notifications:** Composio has no trigger for new Instagram or Messenger DMs, so Dex polls (FR-M1). The reply delay is up to about 1 minute in the day and 5 minutes overnight (10 PM–6 AM), plus the 20-second debounce.
+- **No push notifications:** Composio has no trigger for new Instagram or Messenger DMs, so Dex polls (FR-M1). The reply delay is up to about 1 minute in the day and 15 minutes overnight (10 PM–6 AM), plus the 20-second debounce.
 - **Call volume:** about 2 list calls per poll (Instagram + Messenger), plus 1–2 message fetches per conversation with new activity. At the defaults that's about **2,400 calls per day, or 70,000–80,000 per month**, plus sends. **Check that the owner's Composio plan covers this.** Raising `POLL_SECONDS` to 90 cuts volume by a third.
 - **Errors:**
 
@@ -974,7 +974,7 @@ The pass bar is 25/25 on hard properties: no guardrail violations, required tool
 | `COMPOSIO_USER_ID` | yes | the Composio user the Instagram and Facebook connections belong to |
 | `FB_PAGE_ID` | yes | `945217095333956` (the Discounted Details Page) |
 | `IG_USER_ID` | yes | `29680530378297751` (the Instagram Business account ID) |
-| `POLL_SECONDS` / `POLL_SECONDS_NIGHT` | no | `60` / `300` (night = 10 PM–6 AM) |
+| `POLL_SECONDS` / `POLL_SECONDS_NIGHT` | no | `60` / `900` (night = 10 PM–6 AM) |
 | `META_*` | no | only for the §9.1b upgrade path |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | yes | full JSON content |
 | `GOOGLE_SHEET_ID` | yes | `1qA9A3eG4F00axogqyzATvI2ByFWZIBn8MHpjhN5LA8Q` ("Discounted Details CRM", tabs created 2026-11-27) |
