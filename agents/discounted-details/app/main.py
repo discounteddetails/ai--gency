@@ -81,15 +81,15 @@ def build(settings=None):
         from app.pixel.service import Pixel
 
         host = bot.nova.host if bot.nova else MediaHost(s.NOVA_MEDIA_DIR, s.PUBLIC_BASE_URL)
-        bot.pixel = Pixel(dex, Designer(runner.client, s.ANTHROPIC_MODEL), Renderer(s.CHROMIUM_PATH or None), host,
+        bot.pixel = Pixel(dex, Designer(runner.client, s.PIXEL_MODEL), Renderer(s.CHROMIUM_PATH or None), host,
                           s.PIXEL_ASSETS_DIR, bot_token=s.TELEGRAM_BOT_TOKEN.get_secret_value(), nova=bot.nova)
     from app.router import Router
 
-    bot.router = Router(runner.client, s.ANTHROPIC_MODEL, pixel=bot.pixel, nova=bot.nova, dex=dex)
+    bot.router = Router(runner.client, s.ROUTER_MODEL, pixel=bot.pixel, nova=bot.nova, dex=dex)
     if s.ATLAS_ENABLED:
         from app.atlas.agent import Atlas
 
-        bot.atlas = Atlas(dex, runner.client, s.ANTHROPIC_MODEL, pixel=bot.pixel, nova=bot.nova, jobs=jobs)
+        bot.atlas = Atlas(dex, runner.client, s.ATLAS_MODEL, pixel=bot.pixel, nova=bot.nova, jobs=jobs)
     return dex, runner, jobs, poller, bot
 
 

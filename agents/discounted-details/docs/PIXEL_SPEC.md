@@ -5,6 +5,7 @@
 | **Role** | Designs offer posters and video thumbnails on request |
 | **Status** | V1. The owner picks every design; nothing is posted without Nova's approval card |
 | **Runs in** | The same Railway service and Telegram bot as Dex and Nova |
+| **Model** | Claude Sonnet 5.5 (`PIXEL_MODEL`) |
 | **Date** | 2026-11-27 |
 
 ## Brand (owner-confirmed)

@@ -5,6 +5,7 @@
 | **Role** | The owner's main contact. Turns objectives into work for Dex, Nova and Pixel, tracks it, checks it and reports back |
 | **Pattern** | Orchestrator–worker. Atlas is a Claude agent whose tools *are* the other agents. No duplicated skills |
 | **Runs in** | The same always-on Railway service (Claude API tool use), same Telegram bot and Sheet |
+| **Model** | Claude Sonnet 5.5 (`ATLAS_MODEL`). Dex and Nova stay on Opus |
 | **Instructions** | `docs/ATLAS_INSTRUCTIONS.md` (system prompt below the `---` line) |
 | **Date** | 2026-11-27 |
 

@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     NOVA_BATCH_SECONDS: int = 180
     PIXEL_ENABLED: bool = True
     ATLAS_ENABLED: bool = True
+    # Cheaper models where top-tier reasoning isn't needed (owner's choice, 2026-11-27).
+    # Dex (customer replies) and Nova's privacy checks stay on ANTHROPIC_MODEL.
+    ATLAS_MODEL: str = "claude-sonnet-5-5"
+    PIXEL_MODEL: str = "claude-sonnet-5-5"
+    ROUTER_MODEL: str = "claude-haiku-5-5"
     PIXEL_ASSETS_DIR: str = "/data/pixel"
     CHROMIUM_PATH: str = ""  # blank = Playwright's own Chromium (installed in the Docker image)
 
