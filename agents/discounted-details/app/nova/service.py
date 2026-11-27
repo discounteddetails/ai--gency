@@ -159,6 +159,10 @@ class Nova:
                 await self.dex.owner.notify(f"⚠️ Couldn't download a file from Telegram ({type(e).__name__}).")
         if not loaded:
             return
+        n_p = sum(1 for x in loaded if x["kind"] == "photo")
+        n_v = len(loaded) - n_p
+        got = " and ".join(f"{n} {k}{'s' if n != 1 else ''}" for n, k in ((n_p, "photo"), (n_v, "video")) if n)
+        self.dex.activity.log("Nova", f"Got {got} from you on Telegram", f"Got {len(loaded)} file{'s' * (len(loaded) != 1)} 📸")
         try:
             results = await self.vision.classify([x["frames"] for x in loaded])
         except Exception as e:
@@ -168,6 +172,12 @@ class Nova:
             return
         for x, r in zip(loaded, results, strict=True):
             x["r"] = r
+        plates = sum(len(x["r"].get("plates") or []) for x in loaded if x["kind"] == "photo")
+        houses = sum(len(x["r"].get("house_numbers") or []) for x in loaded if x["kind"] == "photo")
+        if plates or houses:
+            what = ", ".join(f"{n} {k}{'s' if n != 1 else ''}" for n, k in
+                             ((plates, "license plate"), (houses, "house number")) if n)
+            self.dex.activity.log("Nova", f"Blurred {what}", f"Blurred {what}")
         await self._make_stories([x for x in loaded if x["r"]["category"] in ("on_the_way", "mid_job")
                                   and x["r"]["quality"] >= MIN_QUALITY])
         await self._make_post([x for x in loaded if x["r"]["category"] in ("before", "after")
@@ -211,6 +221,7 @@ class Nova:
             where = "Instagram + Facebook Story" if x["kind"] == "photo" else "Instagram Story (videos can't go to Facebook Stories)"
             label = r["category"].replace("_", " ")
             text = f"{cid} · STORY ({label}) → {where}" + "".join(f"\n{w}" for w in data["warnings"])
+            self.dex.activity.log("Nova", f"Sent you a Story preview ({label})", "Story preview sent")
             await self.dex.owner.post_media(x["kind"], [self.host.url(name)], text,
                                             [[("✅ Post Story", f"{cid}:post"), ("❌ Skip", f"{cid}:skip")]])
 
@@ -241,6 +252,9 @@ class Nova:
                 "created_at": clock.now().isoformat()}
         self._save(cid, "post", "pending", data)
         await self._log(cid, "post", "pending", data)
+        vehicle = next((x["r"]["vehicle"] for x in chosen if x["r"].get("vehicle")), "")
+        self.dex.activity.log("Nova", f"Picked {len(names)} before/after photos{' of the ' + vehicle if vehicle else ''}"
+                                      " and wrote the caption", "Before/after post ready")
         await self.dex.owner.post_media("photo", [self.host.url(n) for n in names], f"{cid} · POST preview", None)
         await self._post_card(cid, data, problem)
 
@@ -313,6 +327,8 @@ class Nova:
             data["scheduled_for"] = slot.isoformat()
             self._save(cid, "post", "scheduled", data)
             await self._log(cid, "post", "scheduled", data)
+            self.dex.activity.log("Nova", f"You approved {cid}: it posts {clock.label(slot)}",
+                                  f"Posts {clock.label(slot).split(',')[0]} {clock.label(slot).split(' at ')[-1]}")
             return f"✅ {cid} scheduled for {clock.label(slot)} on Instagram + Facebook."
         return "Unknown action."
 
@@ -424,6 +440,9 @@ class Nova:
         self._save(cid, kind, status, data)
         await self._log(cid, kind, status, data)
         what = "Story" if kind == "story" else "Post"
+        where = " + ".join(done)
+        self.dex.activity.log("Nova", f"{what} is live on {where}" if done else f"{what} {cid} couldn't be posted",
+                              f"{what} is live ✅" if done else f"{what} failed ⚠️")
         if done and not errors:
             msg = f"✅ {cid} {what} is live on {' + '.join(done)}."
         elif done:

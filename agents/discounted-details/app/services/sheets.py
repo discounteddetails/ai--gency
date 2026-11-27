@@ -36,6 +36,12 @@ class MemoryStore:
     def append(self, tab: str, row: dict[str, Any]) -> None:
         self.rows[tab].append({h: row.get(h, "") for h in self.headers[tab]})
 
+    def insert_top(self, tab: str, row: dict[str, Any]) -> None:
+        self.rows[tab].insert(0, {h: row.get(h, "") for h in self.headers[tab]})
+
+    def trim(self, tab: str, keep: int) -> None:
+        del self.rows[tab][keep:]
+
     def update(self, tab: str, key_col: str, key: str, fields: dict[str, Any]) -> bool:
         for r in self.rows[tab]:
             if str(r.get(key_col)) == str(key):
@@ -90,6 +96,18 @@ class GspreadStore:
         headers = TABS[tab]
         self._retry(lambda: self._sheet(tab).append_row([_cell(row.get(h)) for h in headers],
                                                         value_input_option="USER_ENTERED"))
+
+    def insert_top(self, tab: str, row: dict[str, Any]) -> None:
+        """Newest first (row 2), so readers can fetch a small fixed range. RAW keeps timestamps as text."""
+        headers = TABS[tab]
+        self._retry(lambda: self._sheet(tab).insert_row([_cell(row.get(h)) for h in headers], index=2,
+                                                        value_input_option="RAW"))
+
+    def trim(self, tab: str, keep: int) -> None:
+        ws = self._sheet(tab)
+        last = len(self._retry(lambda: ws.col_values(1)))
+        if last > keep + 1:
+            self._retry(lambda: ws.delete_rows(keep + 2, last))
 
     def update(self, tab: str, key_col: str, key: str, fields: dict[str, Any]) -> bool:
         ws = self._sheet(tab)

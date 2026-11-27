@@ -102,6 +102,10 @@ async def quote_price(ctx, service, size_class, addons, condition, address):
         car = " ".join(str(v.get(k) or "") for v in vehicles[-1:] for k in ("make", "model")).strip()
         ctx.dex.db.kv_set(f"last_quote:{ctx.customer['customer_id']}",
                           {"service_name": q.service_name, "total": q.total, "vehicle": car})
+        if not q.requires_approval:
+            ctx.dex.activity.log("Dex", f"Quoted ${q.total} to {ctx.dex.display_name(ctx.customer)}: "
+                                        f"{q.service_name}{' for the ' + car if car else ''}",
+                                 f"Quoted ${q.total}")
     return q.to_dict()
 
 

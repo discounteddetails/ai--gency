@@ -298,3 +298,17 @@ async def test_text_note_during_batch_goes_to_nova(frozen, tmp_path):
     assert any("Added that note" in t for t in w.owner.texts("notify"))
     assert "Silver F-150 in Buda" in vision.caption_calls[0]
     assert not nova.collecting()
+
+
+async def test_activity_feed_rows(frozen, tmp_path):
+    w, nova, _, _ = make(tmp_path, [item("on_the_way"), item("before"),
+                                    item("after", plates=[{"x0": 1, "y0": 1, "x1": 9, "y1": 9}])])
+    await send(w, nova, [photo_msg(f"f{i}") for i in range(3)])
+    await nova.handle_callback("N0001", "post")
+    await nova.handle_callback("N0002", "post")
+    await w.dex.activity.drain()
+    rows = w.rows("Activity")
+    assert all(r["agent"] == "Nova" for r in rows)
+    shorts = [r["short"] for r in rows]  # newest first
+    assert shorts[0].startswith("Posts Tue 6:30 PM") and shorts[1] == "Story is live ✅"
+    assert "Got 3 files 📸" in shorts and "Blurred 1 license plate" in shorts

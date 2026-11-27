@@ -46,6 +46,9 @@ h1{font:700 clamp(32px,5vw,48px)/1.05 'Pixelify Sans',monospace;margin:0}
 .links{display:flex;flex-wrap:wrap;gap:10px 18px;margin-top:4px}
 a{color:var(--mint)}
 .note{font-size:14px;color:var(--muted);margin:4px 0 12px}
+.note.live::before{content:"";display:inline-block;width:8px;height:8px;margin-right:6px;background:var(--mint);vertical-align:1px}
+.linkbtn{font:inherit;color:var(--mint);background:none;border:0;padding:0;text-decoration:underline;cursor:pointer}
+.feed .empty{display:block;color:var(--muted)}
 .feed{list-style:none;padding:0!important;margin:0}
 .feed li{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:12px;padding:9px 0;border-top:1px solid var(--line);margin:0}
 .feed time{font:600 14px 'Pixelify Sans',monospace;color:var(--mint);white-space:nowrap}
@@ -78,7 +81,7 @@ code{background:var(--panel2);padding:1px 5px;font-size:14px;overflow-wrap:anywh
     <article class="card" id="profile"></article>
     <aside class="card">
       <h2>Activity</h2>
-      <p class="note">Sample activity showing what Dex and Nova do. These aren't real customers.</p>
+      <p class="note" id="feednote">Sample activity showing what Dex and Nova do. These aren't real customers.</p>
       <ul class="feed" id="feed"></ul>
     </aside>
   </div>
@@ -193,18 +196,73 @@ function show(id){
     <h3>Adding an agent</h3><p>Add an entry to the <code>AGENTS</code> list at the top of the script in <code>office/index.html</code> and set <code>desk</code> to ${id.slice(4)}. They'll show up here with their own look and profile.</p>`}
 }
 
-// sample activity
-const feed=document.getElementById('feed');
-let step=0;
+// activity: live from the Sheet's Activity tab (Google Sheets connector); sample until connected
+const feed=document.getElementById('feed'),note=document.getElementById('feednote');
+const GS='Google Sheets',QUERY={spreadsheetId:'1qA9A3eG4F00axogqyzATvI2ByFWZIBn8MHpjhN5LA8Q',range:'Activity!A2:D16'};
+const SAMPLE_NOTE="Sample activity showing what Dex and Nova do. These aren't real customers.";
 const fmt=d=>d.toLocaleTimeString([], {hour:'numeric',minute:'2-digit'});
-function post(i,when){
-  const a=AGENTS[i%AGENTS.length],[long,short]=a.demo[Math.floor(i/AGENTS.length)%a.demo.length];
-  const el=document.createElement('li');el.innerHTML=`<time>${fmt(when)}</time><span><b>${a.name}:</b> ${long}</span>`;
-  bubble.style.left=(deskX(a.desk)+36)/4+'%';bubble.style.top=(DY-34)/2+'%';
-  feed.prepend(el);while(feed.children.length>7)feed.lastChild.remove();
-  bubble.textContent=short;
+const when=d=>new Date().toDateString()==d.toDateString()?fmt(d):d.toLocaleDateString([], {month:'short',day:'numeric'})+', '+fmt(d);
+let mode='sample',live=[],bi=0,step=0;
+function item(name,text,d){
+  const el=document.createElement('li'),tm=document.createElement('time'),sp=document.createElement('span'),b=document.createElement('b');
+  tm.textContent=when(d);b.textContent=name+': ';sp.append(b,document.createTextNode(text));el.append(tm,sp);return el;
 }
-for(let i=0;i<4;i++)post(i,new Date(Date.now()-(4-i)*6*60000));step=4;
+function say(name,short){
+  const a=AGENTS.find(x=>x.name==name);if(!a)return;
+  bubble.style.left=(deskX(a.desk)+36)/4+'%';bubble.style.top=(DY-34)/2+'%';bubble.textContent=short;
+}
+function samplePost(i,d){
+  const a=AGENTS[i%AGENTS.length],[long,short]=a.demo[Math.floor(i/AGENTS.length)%a.demo.length];
+  feed.prepend(item(a.name,long,d));while(feed.children.length>7)feed.lastChild.remove();say(a.name,short);
+}
+function startSample(){
+  mode='sample';live=[];feed.replaceChildren();
+  for(let i=0;i<4;i++)samplePost(i,new Date(Date.now()-(4-i)*6*60000));step=4;
+}
+startSample();
+function setNote(text,btn,isLive){
+  note.textContent=text;note.classList.toggle('live',!!isLive);
+  if(btn){const b=document.createElement('button');b.className='linkbtn';b.textContent=btn.label;b.onclick=btn.fn;note.append(' ',b)}
+}
+function parse(p){
+  const v=(p&&(p.values||(p.content&&p.content.values)))||[];
+  return v.filter(r=>Array.isArray(r)&&r[0]).map(r=>({d:new Date(r[0]),agent:String(r[1]||''),text:String(r[2]||''),
+    short:String(r[3]||r[2]||'')})).filter(r=>!isNaN(r.d)&&r.text);
+}
+function renderLive(rows){
+  mode='live';live=rows;bi=0;
+  if(!rows.length){const li=document.createElement('li');li.className='empty';
+    li.textContent='Nothing yet. Activity shows up here as Dex and Nova work.';feed.replaceChildren(li);bubble.textContent='Waiting for work…';return}
+  feed.replaceChildren(...rows.slice(0,10).map(r=>item(r.agent,r.text,r.d)));say(rows[0].agent,rows[0].short);
+}
+(async()=>{
+  let mcp=null;
+  try{mcp=window.claude&&window.claude.use?await window.claude.use('mcp'):null}catch(e){mcp=null}
+  if(!mcp){setNote(SAMPLE_NOTE+' Open this page on claude.ai with Google Sheets connected to see real activity.');return}
+  setNote('Connecting to your Google Sheet…');
+  const fallback=msg=>{if(mode=='live')startSample();setNote(msg)};
+  const onEvent=ev=>{
+    if(ev.type=='data'){
+      const c=ev.result&&ev.result.cache,at=c&&c.storedAt?new Date(c.storedAt):new Date();
+      renderLive(parse(ev.result&&ev.result.payload));setNote('Live from your Google Sheet · updated '+fmt(at),null,true);return}
+    const code=ev.error&&ev.error.code;
+    if(code=='needs_reauth')fallback('Reconnect Google Sheets in claude.ai Settings → Connectors to see real activity. Showing sample activity.');
+    else if(code=='server_not_connected'||code=='server_not_found'||code=='selection_required')
+      fallback('Add Google Sheets in claude.ai Settings → Connectors to see real activity. Showing sample activity.');
+    else if(code=='approval_required'||code=='not_in_manifest'||code=='consent_required')
+      fallback('Real activity needs your OK to read your Google Sheet. Showing sample activity.'),
+      setNote(note.textContent,{label:'Allow',fn:allow});
+    else if(code=='blocked_by_policy')fallback('Google Sheets is blocked here, so this shows sample activity.');
+    else if(code=='not_granted'||code=='capability_disabled'||code=='capability_removed')fallback(SAMPLE_NOTE);
+    else if(mode=='live')setNote("Couldn't refresh just now. Showing the last update.",null,true);
+    else setNote("Couldn't reach your Google Sheet right now. Showing sample activity.");
+  };
+  const allow=async()=>{
+    setNote('Asking for access…');
+    try{onEvent({type:'data',result:await mcp.callTool(GS,'get_values',QUERY)})}catch(e){onEvent({type:'error',error:e})}
+  };
+  mcp.watchTool(GS,'get_values',QUERY,onEvent,{refetchInterval:30000});
+})();
 
 const chips=document.getElementById('chips'),open=DESKS-AGENTS.length;
 chips.innerHTML=`<span class="chip"><b>${AGENTS.length}</b> agent${AGENTS.length==1?'':'s'} hired</span><span class="chip"><b>${open}</b> open desk${open==1?'':'s'}</span>`;
@@ -214,7 +272,13 @@ draw();
 if(document.fonts&&document.fonts.load)document.fonts.load('8px "Pixelify Sans"').then(draw,()=>{});
 if(!reduce){
   let last=0;const loop=ts=>{if(ts-last>110){t++;last=ts;draw()}requestAnimationFrame(loop)};requestAnimationFrame(loop);
-  setInterval(()=>{bubble.style.opacity=0;setTimeout(()=>{post(step++,new Date());bubble.style.opacity=1},250)},4000);
+  setInterval(()=>{
+    if(mode=='live'&&!live.length)return;
+    bubble.style.opacity=0;
+    setTimeout(()=>{
+      if(mode=='sample')samplePost(step++,new Date());
+      else{bi=(bi+1)%Math.min(live.length,4);say(live[bi].agent,live[bi].short)}
+      bubble.style.opacity=1},250)},4000);
 }else setInterval(draw,30000);
 }
 </script>

@@ -24,6 +24,7 @@ TABS: dict[str, list[str]] = {
     "Settings": ["key", "value", "description"],
     "Content": ["content_id", "created_at", "kind", "status", "scheduled_for", "caption", "platforms", "ig_media_id",
                 "fb_post_id", "notes"],
+    "Activity": ["ts", "agent", "text", "short"],
 }
 
 ID_PREFIX = {"Customers": ("customer_id", "C"), "Vehicles": ("vehicle_id", "V"), "Jobs": ("job_id", "J"),

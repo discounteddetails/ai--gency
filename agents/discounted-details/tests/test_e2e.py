@@ -368,3 +368,13 @@ async def test_quote_followups_day_2_5_7_and_digest(frozen):
         await w.tick()
     statuses = {f["follow_up_id"]: f["status"] for f in w.rows("Follow-ups") if f["type"] == "quote_follow_up"}
     assert sorted(statuses.values()) == ["Cancelled", "Cancelled", "Sent"]
+
+
+async def test_activity_feed_for_booking(frozen):
+    w = World()
+    await w.start()
+    await booking_conversation(w)
+    await w.dex.activity.drain()
+    shorts = [r["short"] for r in w.rows("Activity")][::-1]  # oldest first
+    assert shorts[:3] == ["New DM from Maria G!", "Quoted $310", "Replied to Maria G"]
+    assert any(s.startswith("Booked ") and s.endswith("✅") for s in shorts)

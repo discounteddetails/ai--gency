@@ -13,6 +13,7 @@ from app import clock
 from app.db import DB
 from app.guardrails import DNC_CLOSING_MESSAGE, GuardrailBlocked, TurnState, check_outgoing, is_hard_opt_out
 from app.services import pricing
+from app.services.activity import Activity
 from app.services.calendar import Calendar
 from app.services.channels import choose_channel, dm_window_state
 from app.services.composio_client import ComposioError, WindowClosedError
@@ -55,6 +56,7 @@ class Dex:
         self.runner: AgentRunner | None = None
         self.debouncer = Debouncer(cfg.debounce_seconds, self._process_thread)
         self._thread_locks: dict[str, asyncio.Lock] = {}
+        self.activity = Activity(crm.store)
 
     # ------------------------------------------------------------------ flags
     @property
@@ -126,6 +128,8 @@ class Dex:
             await self.owner.notify(f"⏸ New DM from {who} ({CHANNEL_LABEL[ev.channel]}): \"{text[:300]}\" "
                                     "(Dex is paused)")
             return
+        self.activity.log("Dex", f"New {CHANNEL_LABEL[ev.channel]} DM from {who}: “{text[:90]}”",
+                          f"New DM from {who}!")
         self.debouncer.add(ev.thread_id, ev)
 
     async def on_owner_message(self, ev: InboundEvent) -> None:
@@ -191,6 +195,8 @@ class Dex:
             raise ToolError("WINDOW_CLOSED", str(e)) from e
         except ComposioError as e:
             raise ToolError("UPSTREAM_ERROR", str(e)) from e
+        who = self.display_name(customer)
+        self.activity.log("Dex", f"Replied to {who} on {CHANNEL_LABEL[thread['channel']]}", f"Replied to {who}")
         return {"message_id": mid}
 
     async def deliver_owner_text(self, customer: dict[str, Any], text: str) -> str:
@@ -204,6 +210,9 @@ class Dex:
             if route in ("dm", "human_agent"):
                 await self._dm_send(customer, thread["channel"], thread["sender_id"], text,
                                     human_agent=route == "human_agent")
+                who = self.display_name(customer)
+                self.activity.log("Dex", f"Sent your approved reply to {who} on {CHANNEL_LABEL[thread['channel']]}",
+                                  f"Sent your reply to {who}")
                 return route
         except ComposioError as e:
             log.warning("owner-approved send failed, falling back to follow-up: %s", e)
@@ -211,6 +220,8 @@ class Dex:
                                          "customer_name": self.display_name(customer), "type": "custom",
                                          "due_at": clock.now(), "sender": "owner", "channel": thread["channel"],
                                          "message": text, "created_by": "agent"})
+        self.activity.log("Dex", f"Couldn't message {self.display_name(customer)} (window closed), so it's queued "
+                                 "for you to send", "Queued a message for you")
         return "owner"
 
     async def cancel_quote_followups(self, customer_id: str, why: str) -> int:
@@ -224,6 +235,8 @@ class Dex:
     async def mark_dnc(self, customer: dict[str, Any], reason: str) -> None:
         cid = customer["customer_id"]
         await self.crm.update_customer(cid, {"do_not_contact": True, "dnc_reason": reason, "lead_status": "DNC"})
+        self.activity.log("Dex", f"{self.display_name(customer)} isn't interested, so they're marked Do Not Contact",
+                          "Marked Do Not Contact")
         for fu in await self.crm.list_follow_ups(status="Open", customer_id=cid):
             await self.crm.update_follow_up(fu["follow_up_id"], {"status": "Cancelled"})
 
@@ -264,6 +277,8 @@ class Dex:
             lines.append(f"Draft reply: \"{draft}\"")
         buttons = [[(t, f"{aid}:{a}") for t, a in row] for row in self.BUTTONS.get(type_, self.BUTTONS["reply"])]
         msg_id = await self.owner.post_buttons("\n".join(lines), buttons)
+        self.activity.log("Dex", f"Sent you {aid} on Telegram ({type_.replace('_', ' ')}): {summary[:120]}",
+                          "Asked you on Telegram")
         self.db.save_approval(aid, thread["thread_id"] if thread else None, type_, "pending", payload, msg_id)
         return aid
 
@@ -467,6 +482,9 @@ class Dex:
             await self.owner.notify(f"⚠️ Booked {customer_name} for {clock.label(start)} on your calendar, but the "
                                     "Jobs row failed to save. It will be back-filled tonight.", urgent=True)
         await self.cancel_quote_followups(customer["customer_id"], "Booked")
+        self.activity.log("Dex", f"Booked {label} for {customer_name or self.display_name(customer)}, "
+                                 f"{clock.label(start)}, and added it to your calendar and the Sheet",
+                          f"Booked {clock.label(start).split(',')[0]} {clock.label(start).split(' at ')[-1]} ✅")
         state.booking_succeeded = True
         state.verified_amounts |= q.amounts() | {total}
         return {"job_id": job_id, "calendar_event_id": event_id, "start_label": clock.label(start),
