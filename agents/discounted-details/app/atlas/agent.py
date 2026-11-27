@@ -51,7 +51,7 @@ TOOLS = [
     _t("business_snapshot", "Read live business data from the Sheet (the single source of truth).",
        {"section": {"type": "string", "enum": ["overview", "services", "settings", "promo", "jobs", "leads",
                                                "approvals", "follow_ups", "content", "tasks", "activity",
-                                               "spending"]}},
+                                               "spending", "calendar"]}},
        ["section"]),
     _t("update_task", "Create (no task_id) or update a tracked task in the Sheet's Tasks tab.",
        {"task_id": S, "title": S, "agents": S, "status": {"type": "string",
@@ -217,6 +217,9 @@ class Atlas:
             return await self._tool("nova_status", {})
         if section == "tasks":
             return [r for r in await crm._read("Tasks") if r.get("status") != "done"]
+        if section == "calendar":  # the owner's Google Calendar, next 14 days
+            from app.agent.handlers import calendar_events
+            return await calendar_events(self.dex, now.date(), now.date() + timedelta(days=14))
         if section == "spending":
             ledger = getattr(self.dex, "ledger", None)
             if not ledger:

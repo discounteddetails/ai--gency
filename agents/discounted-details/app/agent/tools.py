@@ -87,7 +87,8 @@ TOOLS: list[dict[str, Any]] = [
           {"query": S_NULL, "tags_any": {"type": "array", "items": S}, "vehicle_make": S_NULL,
            "size_class": S_NULL, "last_job_before": S_NULL, "last_job_after": S_NULL,
            "limit": {"type": "integer", "description": "1 to 500"}}),
-    _tool("get_schedule", "Owner command mode: booked jobs between two dates (YYYY-MM-DD, inclusive).",
+    _tool("get_schedule", "Owner command mode: the schedule between two dates (YYYY-MM-DD, inclusive): booked jobs "
+          "from the Jobs tab plus every other event on the owner's Google Calendar.",
           {"date_from": S, "date_to": S}),
     _tool("list_follow_ups", "Owner command mode: follow-ups filtered by status and sender (empty string = any).",
           {"status": S_NULL, "sender": S_NULL}),

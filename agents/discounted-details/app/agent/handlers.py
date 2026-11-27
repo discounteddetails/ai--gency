@@ -290,7 +290,23 @@ async def get_schedule(ctx, date_from, date_to):
             c = await ctx.dex.crm.get_customer(j["customer_id"])
             jobs.append({"job_id": j["job_id"], "start": j["start"], "customer": ctx.dex.display_name(c),
                          "service": j["service"], "address": j["address"], "total": j["total"], "status": j["status"]})
-    return {"jobs": sorted(jobs, key=lambda x: str(x["start"]))}
+    # Everything else on the owner's Google Calendar (jobs booked by hand, personal events), not just Dex's bookings
+    try:
+        events = await calendar_events(ctx.dex, lo, hi)
+    except UpstreamError as e:
+        events = [{"error": f"Couldn't read Google Calendar: {e}"}]
+    linked = {str(j.get("calendar_event_id")) for j in await ctx.dex.crm.list_jobs() if j.get("calendar_event_id")}
+    other = [e for e in events if e.get("event_id") not in linked]
+    return {"jobs": sorted(jobs, key=lambda x: str(x["start"])), "other_calendar_events": other}
+
+
+async def calendar_events(dex, lo: date, hi: date) -> list[dict[str, Any]]:
+    """All events on the business calendar between two dates (inclusive), in Central time."""
+    start = datetime(lo.year, lo.month, lo.day, tzinfo=clock.TZ)
+    end = datetime(hi.year, hi.month, hi.day, tzinfo=clock.TZ) + timedelta(days=1)
+    blocks = await dex.calendar.busy_blocks(start, end)
+    return [{"event_id": b.event_id, "start": clock.label(b.start), "end": clock.to_local(b.end).strftime("%-I:%M %p"),
+             "title": b.summary or "(busy)", "location": b.location or ""} for b in blocks]
 
 
 async def list_follow_ups(ctx, status, sender):

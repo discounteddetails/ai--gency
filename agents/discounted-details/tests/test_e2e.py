@@ -389,3 +389,29 @@ async def test_owner_asks_open_times_without_address(frozen):
     await w.runner.run_owner_command("what's open this week for a full detail?", quiet=True)
     res = w.claude.last_tool_results()[0]
     assert not res["is_error"] and len(res["slots"]) >= 1
+
+
+async def test_schedule_includes_whole_google_calendar(frozen):
+    """Events the owner put on Google Calendar by hand show up, not just Dex's bookings."""
+    from app.services.calendar import Block
+    w = World()
+    day = clock.now().replace(hour=13, minute=0, second=0, microsecond=0)
+    w.calendar.events["ev_manual"] = Block(start=day, end=day + timedelta(hours=3), location="Buda, TX",
+                                           event_id="ev_manual", summary="Ceramic coat - Jake (booked by phone)")
+    w.claude.queue([tool("get_schedule", date_from=day.date().isoformat(), date_to=day.date().isoformat())],
+                   [say("done")])
+    await w.runner.run_owner_command("what's on my calendar today?", quiet=True)
+    res = w.claude.last_tool_results()[0]
+    titles = [e["title"] for e in res["other_calendar_events"]]
+    assert "Ceramic coat - Jake (booked by phone)" in titles
+
+
+async def test_atlas_reads_calendar_directly(frozen, tmp_path):
+    from app.atlas.agent import Atlas
+    from app.services.calendar import Block
+    w = World()
+    day = clock.now().replace(hour=15, minute=0, second=0, microsecond=0) + timedelta(days=2)
+    w.calendar.events["e1"] = Block(start=day, end=day + timedelta(hours=1), event_id="e1", summary="Dentist")
+    atlas = Atlas(w.dex, None, "m")
+    events = await atlas.snapshot("calendar")
+    assert [e["title"] for e in events] == ["Dentist"]
