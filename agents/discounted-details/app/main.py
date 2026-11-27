@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -76,6 +77,9 @@ def create_app() -> FastAPI:
     handler.setFormatter(JsonFormatter())
     logging.basicConfig(level=s.LOG_LEVEL, handlers=[handler], force=True)
     logging.getLogger("apscheduler").setLevel(logging.WARNING)
+    # httpx logs full request URLs; the Telegram bot token is part of the URL, so never log them.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
     dex, runner, jobs, poller, bot = build(s)
     sched = build_scheduler(jobs, poller, s.POLL_SECONDS, s.POLL_SECONDS_NIGHT)
 
@@ -99,16 +103,24 @@ def create_app() -> FastAPI:
         except Exception as e:
             log.error("telegram registration failed: %s", e)
 
+    async def announce() -> None:
+        await register_telegram()
+        try:
+            await asyncio.wait_for(dex.owner.notify(
+                f"👋 Dex is online. Test mode is {'ON: every reply comes to you here first' if dex.shadow else 'OFF'}. "
+                "Send /help to see what I can do.", urgent=True), timeout=30)
+        except Exception:
+            logging.getLogger("dex").exception("startup notify failed")
+
+    background: set = set()
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         sched.start()
-        await register_telegram()
         logging.getLogger("dex").info("Dex started (shadow=%s)", dex.shadow)
-        try:
-            await dex.owner.notify("👋 Dex is online. Test mode is ON: every reply comes to you here first. "
-                                   "Send /help to see what I can do.", urgent=True)
-        except Exception:
-            logging.getLogger("dex").exception("startup notify failed")
+        t = asyncio.create_task(announce())  # never block startup on network calls
+        background.add(t)
+        t.add_done_callback(background.discard)
         yield
         sched.shutdown(wait=False)
 
