@@ -84,6 +84,11 @@ class TelegramOwner:
         markup = {"inline_keyboard": [[{"text": t, "callback_data": d[:64]} for t, d in row] for row in buttons]}
         return await self._send(text, markup)
 
+    async def edit_buttons(self, message_id: int, text: str, buttons: list[list[tuple[str, str]]]) -> None:
+        markup = {"inline_keyboard": [[{"text": t, "callback_data": d[:64]} for t, d in row] for row in buttons]}
+        await self._call("editMessageText", {"chat_id": self.chat_id, "message_id": message_id, "text": text[:MAX_LEN],
+                                             "reply_markup": markup})
+
     async def mark_decided(self, message_id: int, text: str) -> None:
         await self._call("editMessageText", {"chat_id": self.chat_id, "message_id": message_id, "text": text[:MAX_LEN]})
 
@@ -138,6 +143,9 @@ class FakeOwner:
 
     async def mark_decided(self, message_id, text) -> None:
         self._add(kind="edit", target=message_id, text=text)
+
+    async def edit_buttons(self, message_id, text, buttons) -> None:
+        self._add(kind="edit_buttons", target=message_id, text=text, buttons=buttons)
 
     async def ask_for_text(self, prompt) -> int:
         return self._add(kind="ask", text=prompt)

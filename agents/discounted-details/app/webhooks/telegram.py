@@ -76,8 +76,8 @@ class OwnerBot:
         except ValueError:
             return
         if aid.startswith("N") and self.nova:
-            reply = await self.nova.handle_callback(aid, action)
-            if reply and action in ("post", "skip") and cq.get("message", {}).get("message_id"):
+            reply = await self.nova.handle_callback(aid, action, cq.get("message", {}).get("message_id"))
+            if reply and action in ("post", "now", "skip") and cq.get("message", {}).get("message_id"):
                 await self.dex.owner.mark_decided(cq["message"]["message_id"], reply) \
                     if cq["message"].get("text") else None
             if reply:

@@ -35,7 +35,9 @@ Grow reach on Instagram and Facebook so more people DM the business, which Dex t
    - The preview goes to Telegram with **✅ Post / ✏️ Edit caption / ❌ Skip**.
    - When approved, the post is scheduled for the next evening slot (**6:30 PM, at most one post per day**). Extra approved posts move to the following days.
    - At the scheduled time it publishes as an **Instagram carousel** and a **Facebook multi-photo post**.
-7. Every Story and post is logged in the Sheet's **Content** tab.
+7. **Offer posts:** when the owner's note mentions a deal (or a photo is a flyer or promo graphic), every usable photo goes into one post, graphics first and uncropped. The caption leads with the running offer from the Settings tab and asks people to comment the promo keyword.
+8. **Destinations:** every post card has toggles for IG feed / FB feed / IG Story / FB Story (default: both feeds), plus 🚀 Post now or the next 6:30 PM slot. The note can pick them, e.g. "facebook feed + instagram story". Story frames carry no caption; up to 5 photos each.
+9. Every Story and post is logged in the Sheet's **Content** tab.
 
 ## 3. Caption rules (owner-approved)
 

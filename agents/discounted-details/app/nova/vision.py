@@ -9,7 +9,7 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
-CATEGORIES = ["on_the_way", "mid_job", "before", "after", "skip"]
+CATEGORIES = ["on_the_way", "mid_job", "before", "after", "promo", "skip"]
 
 BOX = {"type": "object", "additionalProperties": False,
        "properties": {"x0": {"type": "number"}, "y0": {"type": "number"}, "x1": {"type": "number"},
@@ -42,8 +42,8 @@ CLASSIFY_SCHEMA = {
 CLASSIFY_PROMPT = """You review photos for Discounted Details, a mobile car detailing business in Kyle, TX.
 Each image is labeled "Item N" (video items show several frames from the same clip). For every item return:
 - category: on_the_way (driving/arriving, truck/supplies/road), mid_job (the detailer working: tools in use, foam,
-  vacuuming, extraction), before (vehicle still dirty), after (vehicle clean, finished), skip (blurry, duplicate,
-  nothing useful).
+  vacuuming, extraction), before (vehicle still dirty), after (vehicle clean, finished), promo (a flyer, graphic,
+  price list or text announcement made for an ad or offer), skip (blurry, duplicate, nothing useful).
 - quality 1-10 for how good it would look on Instagram.
 - plates / house_numbers / faces: bounding boxes for EVERY license plate, house or address number, and human face,
   in coordinates normalized 0-1000 (x0,y0 top-left, x1,y1 bottom-right) of that image. Make boxes slightly generous.

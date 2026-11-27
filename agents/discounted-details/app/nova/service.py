@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -27,10 +28,37 @@ from app.nova.media import (
 )
 from app.services.composio_client import ComposioError
 from app.services.debounce import Debouncer
+from app.services.promo import active_promo
 from app.services.sheets import _cell
 
 log = logging.getLogger(__name__)
 POST_HOUR, POST_MINUTE, LAST_POST_HOUR = 18, 30, 20
+TARGETS = {"igf": "IG feed", "fbf": "FB feed", "igs": "IG Story", "fbs": "FB Story"}
+DEFAULT_TARGETS = ["igf", "fbf"]
+MAX_STORY_FRAMES = 5
+
+
+def _targets(data: dict[str, Any]) -> list[str]:
+    """Posts saved before destinations existed go to both feeds; an empty list means the owner unticked all."""
+    return list(data["targets"]) if "targets" in data else list(DEFAULT_TARGETS)
+
+
+def parse_targets(note: str) -> list[str] | None:
+    """'facebook feed + instagram story' -> ['fbf', 'igs']. None when the note names no destination."""
+    out: list[str] = []
+    for chunk in re.split(r"\+|,|&|\band\b|\bplus\b|\n", (note or "").lower()):
+        story = re.search(r"\bstor(?:y|ies)\b", chunk)
+        feed = re.search(r"\b(?:feed|post|page|wall|timeline)\b", chunk)
+        if not (story or feed):
+            continue
+        fb = re.search(r"\b(?:fb|facebook)\b", chunk)
+        ig = re.search(r"\b(?:ig|insta|instagram)\b", chunk)
+        nets = [n for n, hit in (("ig", ig), ("fb", fb)) if hit] or ["ig", "fb"]
+        for n in nets:
+            t = n + ("s" if story else "f")
+            if t not in out:
+                out.append(t)
+    return [t for t in TARGETS if t in out] or None
 MIN_QUALITY = 4
 
 SCHEMA = """
@@ -178,11 +206,20 @@ class Nova:
             what = ", ".join(f"{n} {k}{'s' if n != 1 else ''}" for n, k in
                              ((plates, "license plate"), (houses, "house number")) if n)
             self.dex.activity.log("Nova", f"Blurred {what}", f"Blurred {what}")
-        await self._make_stories([x for x in loaded if x["r"]["category"] in ("on_the_way", "mid_job")
-                                  and x["r"]["quality"] >= MIN_QUALITY])
-        await self._make_post([x for x in loaded if x["r"]["category"] in ("before", "after")
-                               and x["r"]["quality"] >= MIN_QUALITY and x["kind"] == "photo"], notes)
-        skipped = [x for x in loaded if x["r"]["category"] == "skip" or x["r"]["quality"] < MIN_QUALITY]
+        offer = captions.is_offer(notes) or any(x["r"]["category"] == "promo" for x in loaded)
+        if offer:  # an ad: every usable photo goes into one post, promo graphics first
+            order = {"promo": 0, "after": 1, "before": 2, "mid_job": 3, "on_the_way": 4}
+            photos = sorted([x for x in loaded if x["kind"] == "photo" and x["r"]["category"] != "skip"],
+                            key=lambda x: (order.get(x["r"]["category"], 9), -x["r"]["quality"]))[:10]
+            await self._make_stories([x for x in loaded if x["kind"] == "video" and x["r"]["category"] != "skip"])
+            if photos:
+                await self._build_post(photos, notes, offer=True)
+        else:
+            await self._make_stories([x for x in loaded if x["r"]["category"] in ("on_the_way", "mid_job")
+                                      and x["r"]["quality"] >= MIN_QUALITY])
+            await self._make_post([x for x in loaded if x["r"]["category"] in ("before", "after")
+                                   and x["r"]["quality"] >= MIN_QUALITY and x["kind"] == "photo"], notes)
+        skipped = [x for x in loaded if x["r"]["category"] == "skip" or (not offer and x["r"]["quality"] < MIN_QUALITY)]
         if skipped:
             await self.dex.owner.notify(f"Nova skipped {len(skipped)} item(s) that were blurry, duplicates or not "
                                         "usable.")
@@ -237,38 +274,61 @@ class Nova:
         after_keys = {a["r"].get("pair_key") for a in afters if a["r"].get("pair_key")}
         befores.sort(key=lambda b: (b["r"].get("pair_key") not in after_keys, -b["r"]["quality"]))
         chosen = befores[:3] + afters[: 6 - min(3, len(befores))]
+        await self._build_post(chosen, notes, offer=captions.is_offer(notes))
+
+    async def _build_post(self, chosen: list[dict[str, Any]], notes: str, *, offer: bool) -> None:
         names, previews = [], []
         for x in chosen:
             img = await run_blocking(open_image, x["data"])
             img = await run_blocking(blur_boxes, img, self._boxes(x["r"], ("plates", "house_numbers", "faces")))
-            jpeg = await run_blocking(to_jpeg, await run_blocking(fit_feed, img))
+            if x["r"]["category"] == "promo":  # graphics: never crop text off the edges
+                img = await run_blocking(cap_size, img)
+            else:
+                img = await run_blocking(fit_feed, img)
+            jpeg = await run_blocking(to_jpeg, img)
             names.append(self.host.save(jpeg, "jpg"))
             previews.append(await run_blocking(for_vision, jpeg))
-        facts = await self._facts(chosen, notes)
-        offer = captions.is_offer(notes)
+        facts = await self._facts(chosen, notes, offer=offer)
         caption, problem = await self._caption(facts, previews, offer=offer)
         cid = self._new_id()
         warnings = [w for x in chosen for w in self._warnings(x, blurred=True)]
         data = {"media": names, "caption": caption, "facts": facts, "offer": offer, "warnings": warnings,
+                "targets": parse_targets(notes) or list(DEFAULT_TARGETS),
                 "created_at": clock.now().isoformat()}
         self._save(cid, "post", "pending", data)
         await self._log(cid, "post", "pending", data)
         vehicle = next((x["r"]["vehicle"] for x in chosen if x["r"].get("vehicle")), "")
-        self.dex.activity.log("Nova", f"Picked {len(names)} before/after photos{' of the ' + vehicle if vehicle else ''}"
-                                      " and wrote the caption", "Before/after post ready")
+        if offer:
+            self.dex.activity.log("Nova", f"Put together an offer post with {len(names)} photo"
+                                          f"{'s' if len(names) != 1 else ''} and wrote the caption", "Offer post ready")
+        else:
+            self.dex.activity.log("Nova", f"Picked {len(names)} before/after photos"
+                                          f"{' of the ' + vehicle if vehicle else ''} and wrote the caption",
+                                  "Before/after post ready")
         await self.dex.owner.post_media("photo", [self.host.url(n) for n in names], f"{cid} · POST preview", None)
         await self._post_card(cid, data, problem)
 
-    async def _post_card(self, cid: str, data: dict[str, Any], problem: str = "") -> None:
+    async def _post_card(self, cid: str, data: dict[str, Any], problem: str = "", message_id: int | None = None) -> None:
         slot = self.next_slot()
-        text = (f"{cid} · BEFORE/AFTER POST → Instagram + Facebook\n{len(data['media'])} photos · posts "
-                f"{clock.label(slot)}\n\n{data['caption']}"
+        targets = _targets(data)
+        where = " + ".join(TARGETS[t] for t in TARGETS if t in targets) or "nowhere yet (tap a destination)"
+        kind = "OFFER POST" if data.get("offer") else "BEFORE/AFTER POST"
+        text = (f"{cid} · {kind} → {where}\n{len(data['media'])} photo{'s' if len(data['media']) != 1 else ''}"
+                f"\n\n{data['caption']}"
                 + (f"\n\n⚠️ {problem}. Please edit the caption." if problem else "")
                 + "".join(f"\n{w}" for w in data.get("warnings", [])))
-        await self.dex.owner.post_buttons(text, [[("✅ Post", f"{cid}:post"), ("✏️ Edit caption", f"{cid}:edit")],
-                                                 [("❌ Skip", f"{cid}:skip")]])
+        tick = {t: ("✅ " if t in targets else "⬜ ") + label for t, label in TARGETS.items()}
+        buttons = [[(tick["igf"], f"{cid}:t_igf"), (tick["fbf"], f"{cid}:t_fbf")],
+                   [(tick["igs"], f"{cid}:t_igs"), (tick["fbs"], f"{cid}:t_fbs")],
+                   [("🚀 Post now", f"{cid}:now"), (f"🕕 {clock.label(slot).split(', ', 1)[0]} "
+                                                   f"{clock.label(slot).split(' at ')[-1]}", f"{cid}:post")],
+                   [("✏️ Edit caption", f"{cid}:edit"), ("❌ Skip", f"{cid}:skip")]]
+        if message_id:
+            await self.dex.owner.edit_buttons(message_id, text, buttons)
+        else:
+            await self.dex.owner.post_buttons(text, buttons)
 
-    async def _facts(self, chosen: list[dict[str, Any]], notes: str) -> str:
+    async def _facts(self, chosen: list[dict[str, Any]], notes: str, offer: bool = False) -> str:
         vehicles = sorted({x["r"]["vehicle"] for x in chosen if x["r"].get("vehicle")})
         areas = sorted({x["r"]["area"] for x in chosen if x["r"].get("area") not in (None, "none")})
         lines = [f"Owner's note: {notes}" if notes else "", f"Vehicle seen: {', '.join(vehicles)}" if vehicles else "",
@@ -285,6 +345,17 @@ class Nova:
             pass
         if not any("in " in ln for ln in lines if ln.startswith("Today")):
             lines.append("City: Kyle, TX area (use Kyle unless the owner's note says otherwise)")
+        if offer:
+            lines.append("This is an OFFER post: make the offer the headline.")
+            try:
+                promo = active_promo(await self.dex.crm.get_settings())
+            except Exception:
+                promo = None
+            if promo and promo["details"]:
+                lines.append(f"The running offer (state it exactly, never change the terms): {promo['details']}")
+                if promo["keyword"]:
+                    lines.append(f"Call to action: ask people to comment \"{promo['keyword']}\" for the details "
+                                 "(instead of asking them to DM).")
         return "\n".join(ln for ln in lines if ln)
 
     async def _caption(self, facts: str, previews: list[bytes], *, offer: bool = False) -> tuple[str, str]:
@@ -305,7 +376,7 @@ class Nova:
                 "#kyletx #buda #austindetailing #mobiledetailing #cardetailing"), problem
 
     # ------------------------------------------------------------------ owner decisions
-    async def handle_callback(self, cid: str, action: str) -> str:
+    async def handle_callback(self, cid: str, action: str, message_id: int | None = None) -> str:
         c = self.get(cid)
         if not c:
             return f"{cid} not found."
@@ -319,10 +390,23 @@ class Nova:
         if action == "edit" and c["kind"] == "post":
             self.dex.db.kv_set("telegram_pending_input", {"approval_id": cid, "action": "nova_caption",
                                                           "at": clock.now().isoformat()})
-            await self.dex.owner.ask_for_text(f"✏️ {cid}: send the new caption (5 hashtags max, no prices).")
+            await self.dex.owner.ask_for_text(f"✏️ {cid}: send the new caption (5 hashtags max).")
             return ""
         if action == "post" and c["kind"] == "story":
             return await self._publish_story(cid, data)
+        if action.startswith("t_") and c["kind"] == "post" and action[2:] in TARGETS:
+            targets = list(_targets(data))
+            t = action[2:]
+            targets = [x for x in targets if x != t] if t in targets else targets + [t]
+            data["targets"] = [x for x in TARGETS if x in targets]
+            self._save(cid, "post", "pending", data)
+            await self._post_card(cid, data, message_id=message_id)
+            return ""
+        if action in ("post", "now") and c["kind"] == "post" and not _targets(data):
+            return f"Pick at least one place to post {cid} first."
+        if action == "now" and c["kind"] == "post":
+            self._save(cid, "post", "publishing", data)
+            return await self._publish_post(cid, data)
         if action == "post" and c["kind"] == "post":
             slot = self.next_slot()
             data["scheduled_for"] = slot.isoformat()
@@ -330,7 +414,8 @@ class Nova:
             await self._log(cid, "post", "scheduled", data)
             self.dex.activity.log("Nova", f"You approved {cid}: it posts {clock.label(slot)}",
                                   f"Posts {clock.label(slot).split(',')[0]} {clock.label(slot).split(' at ')[-1]}")
-            return f"✅ {cid} scheduled for {clock.label(slot)} on Instagram + Facebook."
+            where = " + ".join(TARGETS[t] for t in TARGETS if t in _targets(data))
+            return f"✅ {cid} scheduled for {clock.label(slot)} on {where}."
         return "Unknown action."
 
     async def set_caption(self, cid: str, text: str) -> str:
@@ -390,25 +475,30 @@ class Nova:
                               {"ig_user_id": self.ig_user_id, "creation_id": creation, "max_wait_seconds": wait})
         return find_id(pub, ("id", "media_id")) or creation
 
+    async def _ig_story(self, url: str, video: bool = False) -> str:
+        args = {"media_type": "STORIES", ("video_url" if video else "image_url"): url}
+        return await self._ig_publish(args, wait=180 if video else 60)
+
+    async def _fb_story(self, url: str) -> str:
+        c = self.dex.dm.c
+        up = await c.execute("FACEBOOK_UPLOAD_PHOTO", {"page_id": self.page_id, "url": url, "published": False})
+        photo_id = find_id(up, ("id", "photo_id"))
+        if not photo_id:
+            raise ComposioError(f"no photo id: {up}")
+        st = await c.execute("FACEBOOK_PUBLISH_PAGE_PHOTO_STORY", {"page_id": self.page_id, "photo_id": photo_id})
+        return find_id(st, ("post_id", "id")) or photo_id
+
     async def _publish_story(self, cid: str, data: dict[str, Any]) -> str:
         url = self.host.url(data["media"][0])
         done, errors = [], []
         try:
-            args = {"media_type": "STORIES", ("video_url" if data["media_kind"] == "video" else "image_url"): url}
-            data["ig_media_id"] = await self._ig_publish(args, wait=180 if data["media_kind"] == "video" else 60)
+            data["ig_media_id"] = await self._ig_story(url, video=data["media_kind"] == "video")
             done.append("Instagram")
         except ComposioError as e:
             errors.append(f"Instagram: {e}")
         if data["media_kind"] == "photo":
             try:
-                up = await self.dex.dm.c.execute("FACEBOOK_UPLOAD_PHOTO", {"page_id": self.page_id, "url": url,
-                                                                            "published": False})
-                photo_id = find_id(up, ("id", "photo_id"))
-                if not photo_id:
-                    raise ComposioError(f"no photo id: {up}")
-                st = await self.dex.dm.c.execute("FACEBOOK_PUBLISH_PAGE_PHOTO_STORY",
-                                                 {"page_id": self.page_id, "photo_id": photo_id})
-                data["fb_post_id"] = find_id(st, ("post_id", "id")) or photo_id
+                data["fb_post_id"] = await self._fb_story(url)
                 done.append("Facebook")
             except ComposioError as e:
                 errors.append(f"Facebook: {e}")
@@ -416,23 +506,41 @@ class Nova:
 
     async def _publish_post(self, cid: str, data: dict[str, Any]) -> str:
         urls = [self.host.url(n) for n in data["media"]]
+        targets = _targets(data)
         done, errors = [], []
-        try:
-            if len(urls) == 1:
-                data["ig_media_id"] = await self._ig_publish({"image_url": urls[0], "caption": data["caption"]})
-            else:
-                data["ig_media_id"] = await self._ig_publish({"child_image_urls": urls, "caption": data["caption"]},
-                                                             tool="INSTAGRAM_CREATE_CAROUSEL_CONTAINER", wait=120)
-            done.append("Instagram")
-        except ComposioError as e:
-            errors.append(f"Instagram: {e}")
-        try:
-            fb = await self.dex.dm.c.execute("FACEBOOK_CREATE_MULTI_PHOTO_POST",
-                                             {"page_id": self.page_id, "photo_urls": urls, "message": data["caption"]})
-            data["fb_post_id"] = find_id(fb, ("id", "post_id"))
-            done.append("Facebook")
-        except ComposioError as e:
-            errors.append(f"Facebook: {e}")
+        if "igf" in targets:
+            try:
+                if len(urls) == 1:
+                    data["ig_media_id"] = await self._ig_publish({"image_url": urls[0], "caption": data["caption"]})
+                else:
+                    data["ig_media_id"] = await self._ig_publish(
+                        {"child_image_urls": urls, "caption": data["caption"]},
+                        tool="INSTAGRAM_CREATE_CAROUSEL_CONTAINER", wait=120)
+                done.append("IG feed")
+            except ComposioError as e:
+                errors.append(f"IG feed: {e}")
+        if "fbf" in targets:
+            try:
+                fb = await self.dex.dm.c.execute("FACEBOOK_CREATE_MULTI_PHOTO_POST",
+                                                 {"page_id": self.page_id, "photo_urls": urls,
+                                                  "message": data["caption"]})
+                data["fb_post_id"] = find_id(fb, ("id", "post_id"))
+                done.append("FB feed")
+            except ComposioError as e:
+                errors.append(f"FB feed: {e}")
+        for t, label, fn in (("igs", "IG Story", self._ig_story), ("fbs", "FB Story", self._fb_story)):
+            if t not in targets:
+                continue
+            ok = 0
+            for u in urls[:MAX_STORY_FRAMES]:  # stories have no caption; each photo is its own frame
+                try:
+                    await fn(u)
+                    ok += 1
+                except ComposioError as e:
+                    errors.append(f"{label}: {e}")
+                    break
+            if ok:
+                done.append(label)
         return await self._finish(cid, "post", data, done, errors)
 
     async def _finish(self, cid: str, kind: str, data: dict[str, Any], done: list[str], errors: list[str]) -> str:

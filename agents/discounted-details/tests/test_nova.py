@@ -165,7 +165,8 @@ async def test_batch_previews_then_story_posts_only_after_approval(frozen, tmp_p
     assert pub.calls == []  # nothing posts without approval
     story, post = cards(w)
     assert "STORY" in story["text"] and story["buttons"][0][0] == ("✅ Post Story", "N0001:post")
-    assert "BEFORE/AFTER POST" in post["text"] and "6:30" in post["text"] and GOOD in post["text"]
+    assert "BEFORE/AFTER POST" in post["text"] and GOOD in post["text"]
+    assert ("🕕 Tue 6:30 PM", "N0002:post") in post["buttons"][2]
     assert any("skipped 1" in t for t in w.owner.texts("notify"))
     assert nova.vision.caption_calls and "Tahoe, Kyle" in nova.vision.caption_calls[0]
     # the preview images are the processed files that will be posted
@@ -339,3 +340,57 @@ async def test_owner_edit_may_include_price(frozen, tmp_path):
     await nova.handle_callback("N0001", "edit")
     assert await w.bot.handle_text("Interior detail special, $150 this week only ✨ DM us") is None
     assert "$150" in nova.get("N0001")["data"]["caption"]
+
+
+
+def test_parse_targets():
+    from app.nova.service import parse_targets
+    assert parse_targets("facebook feed + instagram story") == ["fbf", "igs"]
+    assert parse_targets("stories only") == ["igs", "fbs"]
+    assert parse_targets("IG post, FB story") == ["igf", "fbs"]
+    assert parse_targets("Tahoe, Kyle") is None
+
+
+async def test_offer_post_fb_feed_and_ig_story_posted_now(frozen, tmp_path):
+    offer_cap = "Black Friday: $20 off any detail booked by 11/30 🖤 Comment FRIDAY!\n#kyletx #buda #a #b #c"
+    files = {"f0": jpeg(size=(1080, 1920)), "f1": jpeg(), "f2": jpeg()}
+    w, nova, vision, pub = make(tmp_path, [item("promo", quality=3), item("after"), item("skip")], files=files,
+                                captions_=[offer_cap])
+    await send(w, nova, [photo_msg("f0", "Black Friday deal. facebook feed + instagram story"), photo_msg("f1"),
+                         photo_msg("f2")])
+    c = nova.get("N0001")
+    assert c["data"]["offer"] and c["data"]["targets"] == ["fbf", "igs"] and len(c["data"]["media"]) == 2
+    # the promo graphic was not cropped to the feed shape
+    first = Image.open(io.BytesIO(nova.host.path(c["data"]["media"][0]).read_bytes()))
+    assert first.size[1] > first.size[0]
+    card = cards(w)[-1]
+    assert "OFFER POST → FB feed + IG Story" in card["text"] and offer_cap in card["text"]
+    assert card["buttons"][0] == [("⬜ IG feed", "N0001:t_igf"), ("✅ FB feed", "N0001:t_fbf")]
+    assert "This is an OFFER post" in vision.caption_calls[0]
+    msg = await w.bot.handle_update({"callback_query": {"id": "1", "data": "N0001:now",
+                                                        "message": {"chat": {"id": 9229985118}, "message_id": 7,
+                                                                    "text": card["text"]}}})
+    assert pub.slugs() == ["FACEBOOK_CREATE_MULTI_PHOTO_POST",
+                           "INSTAGRAM_CREATE_MEDIA_CONTAINER", "INSTAGRAM_POST_IG_USER_MEDIA_PUBLISH",
+                           "INSTAGRAM_CREATE_MEDIA_CONTAINER", "INSTAGRAM_POST_IG_USER_MEDIA_PUBLISH"]
+    assert pub.calls[0][1]["message"] == offer_cap
+    assert all(a.get("media_type") == "STORIES" for s, a in pub.calls if s == "INSTAGRAM_CREATE_MEDIA_CONTAINER")
+    assert nova.get("N0001")["status"] == "published"
+    assert any("live on FB feed + IG Story" in t for t in w.owner.texts("notify"))
+    assert msg is None
+
+
+async def test_toggle_destinations_and_require_one(frozen, tmp_path):
+    w, nova, _, pub = make(tmp_path, [item("before"), item("after")])
+    await send(w, nova, [photo_msg("f0"), photo_msg("f1")])
+    for t in ("t_igf", "t_fbf"):
+        assert await nova.handle_callback("N0001", t, message_id=3) == ""
+    assert nova.get("N0001")["data"]["targets"] == []
+    assert w.owner.messages[-1]["kind"] == "edit_buttons" and "nowhere yet" in w.owner.messages[-1]["text"]
+    assert "Pick at least one" in await nova.handle_callback("N0001", "now")
+    await nova.handle_callback("N0001", "t_fbs", message_id=3)
+    r = await nova.handle_callback("N0001", "post")
+    assert "FB Story" in r and nova.get("N0001")["status"] == "scheduled"
+    frozen.move_to(NOW.replace(hour=18, minute=31))
+    await nova.publish_due()
+    assert pub.slugs() == ["FACEBOOK_UPLOAD_PHOTO", "FACEBOOK_PUBLISH_PAGE_PHOTO_STORY"] * 2
