@@ -90,6 +90,7 @@ SETTINGS_ROWS: list[tuple[str, object, str]] = [
     ("promo_dm", "", "The DM sent to people who comment the keyword"),
     ("promo_details", "", "The offer Dex honors without asking you (exact terms)"),
     ("promo_ends", "", "Last day of the offer (YYYY-MM-DD). After this, Dex stops honoring it"),
+    ("promo_discount", 0, "Dollars off every booking made while the offer runs (0 = none)"),
 ]
 
 DEFAULT_SETTINGS: dict[str, object] = {k: v for k, v, _ in SETTINGS_ROWS}

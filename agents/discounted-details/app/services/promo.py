@@ -29,13 +29,19 @@ def active_promo(settings: dict[str, Any], now: datetime | None = None) -> dict[
                 return None  # unreadable end date: never run an offer open-ended
         if clock.to_local(now or clock.now()).date() > last:
             return None
-    return {"keyword": kw, "dm": str(settings.get("promo_dm") or "").strip(), "details": details, "ends": ends}
+    try:
+        discount = max(0, int(float(str(settings.get("promo_discount") or 0).replace("$", ""))))
+    except ValueError:
+        discount = 0
+    return {"keyword": kw, "dm": str(settings.get("promo_dm") or "").strip(), "details": details, "ends": ends,
+            "discount": discount}
 
 
 def amounts(promo: dict[str, str] | None) -> set[int]:
     if not promo:
         return set()
-    return {int(m) for m in AMOUNT.findall(promo["details"] + " " + promo["dm"])}
+    return {int(m) for m in AMOUNT.findall(promo["details"] + " " + promo["dm"])} | (
+        {promo["discount"]} if promo.get("discount") else set())
 
 
 def keyword_hit(text: str, keyword: str) -> bool:

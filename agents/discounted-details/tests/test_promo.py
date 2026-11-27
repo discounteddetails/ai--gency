@@ -154,3 +154,39 @@ async def test_offer_prices_pass_the_price_guardrail(frozen):
                    [])
     await w.tick()
     assert "$25 value" in w.composio.sent[-1]["text"]
+
+
+async def test_twenty_off_quote_and_booking(frozen):
+    from tests.fakes import tool
+    from tests.test_e2e import ADDR, first_slot, results
+    w = World(settings_overrides={**PROMO, "promo_discount": "20",
+                                  "promo_details": "$20 off any detail booked by 11/30 (appointment can be any date)"})
+    await w.start()
+    q = dict(service="full", size_class="large_suv", addons=["pet_hair"], condition="standard")
+    w.claude.queue(
+        [tool("quote_price", **q, address=ADDR)],
+        [tool("find_available_slots", **q, address=ADDR, earliest_date=None, latest_date=None, time_of_day="any",
+              max_results=3)],
+        lambda msgs: [tool("send_reply", customer_id=None,
+                           text=f"A Full Detail for your Tahoe with pet hair is normally $310, $290 with our Black "
+                                f"Friday $20 off. I have {first_slot(msgs)['label']}. Does that work?")],
+        [],
+    )
+    w.composio.customer_says("instagram", "111", "how much for a full detail on my tahoe, dog hair. 412 Elm St Kyle")
+    await w.tick()
+    assert "$290" in w.composio.sent[-1]["text"]
+    w.claude.queue(
+        lambda msgs: [tool("book_appointment", slot_id=first_slot(msgs)["slot_id"], customer_name="Mike R",
+                           phone="512-555-0182", address=ADDR,
+                           vehicle={"year": 2020, "make": "Chevy", "model": "Tahoe", "color": None,
+                                    "size_class": "large_suv"}, service="full", addons=["pet_hair"],
+                           condition="standard", notes=None)],
+        lambda msgs: [tool("send_reply", customer_id=None,
+                           text=f"You're all set! Total: ${results(msgs)[0]['total']}, paid after the job.")],
+        [],
+    )
+    w.composio.customer_says("instagram", "111", "yes book it, Mike R 512-555-0182")
+    await w.tick()
+    job = w.rows("Jobs")[0]
+    assert job["total"] == 290 and job["override_price"] == 290 and job["notes"].startswith("Promo: $20 off")
+    assert "$290" in w.composio.sent[-1]["text"]

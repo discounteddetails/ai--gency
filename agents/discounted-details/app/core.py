@@ -21,6 +21,7 @@ from app.services.debounce import Debouncer
 from app.services.dm_client import DMClient
 from app.services.maps import AddressNotFound, Maps
 from app.services.owner_telegram import OwnerChannel
+from app.services.promo import active_promo
 from app.services.scheduling import BOOKING_LOCK, SlotError, recheck_slot, verify_slot
 from app.services.sheets import SheetsCRM, UpstreamError
 
@@ -434,6 +435,11 @@ class Dex:
         settings = await self.crm.get_settings()
         end = start + timedelta(minutes=q.duration_min)
         total = override_price if override_price is not None else q.total
+        promo = active_promo(settings)
+        if override_price is None and promo and promo["discount"]:  # owner's running offer, e.g. $20 off
+            total = max(0, q.total - promo["discount"])
+            override_price = total
+            notes = f"Promo: ${promo['discount']} off{' (offer ends ' + promo['ends'] + ')' if promo['ends'] else ''}. {notes}".strip()
         async with BOOKING_LOCK:
             try:
                 free = await recheck_slot(calendar=self.calendar, maps=self.maps, settings=settings, start=start,

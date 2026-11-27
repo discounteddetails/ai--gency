@@ -14,6 +14,7 @@ from app.agent.tools import MODES
 from app.core import Dex, ToolError
 from app.guardrails import COMPLAINT_HOLDING_MESSAGE, TurnState
 from app.services.maps import AddressNotFound, check_service_area
+from app.services.promo import active_promo
 from app.services.scheduling import SlotError, find_slots
 from app.services.sheets import UpstreamError
 
@@ -106,7 +107,13 @@ async def quote_price(ctx, service, size_class, addons, condition, address):
             ctx.dex.activity.log("Dex", f"Quoted ${q.total} to {ctx.dex.display_name(ctx.customer)}: "
                                         f"{q.service_name}{' for the ' + car if car else ''}",
                                  f"Quoted ${q.total}")
-    return q.to_dict()
+    out = q.to_dict()
+    promo = active_promo(await ctx.dex.crm.get_settings())
+    if promo and promo["discount"] and not q.requires_approval:
+        out["promo_total"] = max(0, q.total - promo["discount"])
+        out["promo_note"] = f"Running offer: ${promo['discount']} off. Tell the customer both prices; book_appointment applies it."
+        ctx.state.verified_amounts |= {out["promo_total"], promo["discount"]}
+    return out
 
 
 async def check_area(ctx, address):
