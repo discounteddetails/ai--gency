@@ -415,3 +415,16 @@ async def test_atlas_reads_calendar_directly(frozen, tmp_path):
     atlas = Atlas(w.dex, None, "m")
     events = await atlas.snapshot("calendar")
     assert [e["title"] for e in events] == ["Dentist"]
+
+
+async def test_follow_up_not_duplicated(frozen):
+    """Asking twice (e.g. Atlas re-running an objective) updates the open follow-up instead of adding another."""
+    w = World()
+    cid = await w.crm.create_customer({"first_name": "Lexi", "instagram_igsid": "777"})
+    due = (clock.now() + timedelta(hours=2)).isoformat()
+    for msg in ("first draft", "second draft"):
+        w.claude.queue([tool("create_follow_up", customer_id=cid, type="quote_follow_up", due_iso=due,
+                             sender="agent", message=msg, job_id=None)], [say("done")])
+        await w.runner.run_owner_command("follow up with Lexi about her quote", quiet=True)
+    rows = [r for r in w.rows("Follow-ups") if r["customer_id"] == cid]
+    assert len(rows) == 1 and rows[0]["message"] == "second draft"

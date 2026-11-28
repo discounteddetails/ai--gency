@@ -187,6 +187,12 @@ async def create_follow_up(ctx, customer_id, type, due_iso, sender, message, job
     if ctx.dex.crm.is_dnc(c):
         raise ToolError("DO_NOT_CONTACT")
     thread = ctx.dex.thread_for(c)
+    # One open follow-up per customer + type (+ job): asking twice updates it instead of stacking duplicates.
+    for f in await ctx.dex.crm.list_follow_ups(status="Open", customer_id=c["customer_id"]):
+        if f.get("type") == type and str(f.get("job_id") or "") == str(job_id or ""):
+            await ctx.dex.crm.update_follow_up(f["follow_up_id"], {
+                "due_at": clock.parse_iso(due_iso), "sender": sender, "message": message})
+            return {"follow_up_id": f["follow_up_id"], "updated_existing": True}
     fid = await ctx.dex.crm.create_follow_up({
         "customer_id": c["customer_id"], "customer_name": ctx.dex.display_name(c), "job_id": job_id or "",
         "type": type, "due_at": clock.parse_iso(due_iso), "sender": sender,
