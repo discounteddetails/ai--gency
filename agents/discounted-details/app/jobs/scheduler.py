@@ -6,7 +6,7 @@ import asyncio
 import logging
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.cron import CronTrigger as _CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 from app import clock
@@ -14,6 +14,12 @@ from app.jobs.dm_poller import DMPoller
 from app.jobs.tasks import Jobs
 
 log = logging.getLogger(__name__)
+
+
+def CronTrigger(**kw):  # noqa: N802
+    """Cron times are Central time. (APScheduler's CronTrigger ignores the scheduler's timezone and falls back to
+    the server's, which is UTC on Railway: everything ran 6 hours early.)"""
+    return _CronTrigger(timezone=clock.TZ, **kw)
 
 
 NIGHT_START_HOUR, NIGHT_END_HOUR = 22, 6  # 10 PM - 6 AM Central: slower checks to save Composio calls

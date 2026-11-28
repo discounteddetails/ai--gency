@@ -271,3 +271,15 @@ async def test_nova_captions_use_cheaper_model_privacy_checks_dont():
     await v.classify([])
     await v.caption("facts", [], [])
     assert seen == ["claude-opus-5-5", "claude-sonnet-5-5"]
+
+
+def test_cron_jobs_run_on_central_time():
+    """Regression: CronTrigger fell back to the server's UTC clock, so 6:30 AM jobs ran at 12:30 AM."""
+    from app import clock
+    from app.jobs.scheduler import build_scheduler
+    from tests.fakes import World
+    w = World()
+    s = build_scheduler(w.jobs, w.poller, 60, 900)
+    for job in s.get_jobs():
+        if job.id in ("daily_summary", "followups", "auto_complete", "book_spending"):
+            assert str(job.trigger.timezone) == str(clock.TZ), job.id
