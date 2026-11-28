@@ -88,9 +88,12 @@ class Jobs:
     # ------------------------------------------------------------ follow-ups
     async def send_due_agent_followups(self) -> int:
         dex, now, n = self.dex, clock.now(), 0
-        for fu in await dex.crm.list_follow_ups(status="Open", sender="agent"):
+        open_agent = await dex.crm.list_follow_ups(status="Open", sender="agent")
+        log.info("follow-ups check: %d open for Dex to send", len(open_agent))
+        for fu in open_agent:
             due = _dt(fu.get("due_at"))
             if not due or due > now:
+                log.info("follow-up %s not due yet (due_at=%r)", fu.get("follow_up_id"), fu.get("due_at"))
                 continue
             customer = await dex.crm.get_customer(fu["customer_id"])
             if not customer or dex.crm.is_dnc(customer):
