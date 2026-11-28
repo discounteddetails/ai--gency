@@ -17,8 +17,9 @@ from app.core import Dex
 log = logging.getLogger(__name__)
 _TASKS: set = set()
 HELP = ("Commands:\n/today · /tomorrow — jobs\n/status — what's pending\n/pause · /resume — stop/start replies\n"
-        "/shadow_on · /shadow_off — approve every reply first\n/offer_story — Nova makes a Story image of your current offer\n/design <what you need> — Pixel designs posters and thumbnails (attach photos with /design as the caption)\n/logo — send your logo as a file with this caption\n/style — what Pixel remembers about your taste (/style forget to reset)\n/tasks — Atlas's open tasks · /brief — the morning brief now\n/spend — what the agents cost today, this week and this month\nJust type to talk to Atlas (your operations manager). Start with Dex, Nova, or Pixel, to go straight to one of them.\nOr type anything, e.g. \"who's booked Saturday\" or "
+        "/shadow_on · /shadow_off — approve every reply first\n/offer_story — Nova makes a Story image of your current offer\n/design <what you need> — Pixel designs posters and thumbnails (attach photos with /design as the caption)\n/logo — send your logo as a file with this caption\n/style — what Pixel remembers about your taste (/style forget to reset)\n/tasks — Atlas's open tasks · /brief — the morning brief now\n/spend — what the agents cost today, this week and this month\n/followups — today's follow-up list · /done 1 3 (or /done all) · /skip 2\nJust type to talk to Atlas (your operations manager). Start with Dex, Nova, or Pixel, to go straight to one of them.\nOr type anything, e.g. \"who's booked Saturday\" or "
         "\"promo 15% off interiors for dog owners\".\nApprovals: tap the buttons, or type yes A17 / no A17 / edit A17 <msg>.")
+DONE = re.compile(r"^\s*/?(done|sent|skip)\b\s*(all\b|[\d ,]+)\s*$", re.IGNORECASE)
 TYPED = re.compile(r"^\s*(yes|y|ok|👍|no|n|edit)\b\s*(?:a?(\d+))?\s*(.*)$", re.IGNORECASE | re.DOTALL)
 
 
@@ -94,12 +95,32 @@ class OwnerBot:
             if reply:
                 await self.dex.owner.notify(reply, urgent=True)
             return
+        mid = cq.get("message", {}).get("message_id")
+        if aid == "FU":  # "I sent them all": confirm first, never assume
+            desk = self.dex.followups
+            left = (self.dex.db.kv_get("followup_report") or {}).get("items", {})
+            if action == "all":
+                if not left:
+                    await self.dex.owner.notify("Nothing left in today's list. 🎉", urgent=True)
+                    return
+                await self.dex.owner.post_buttons(
+                    f"Mark all {len(left)} remaining follow-ups as sent? Only tap Yes if you sent every one.",
+                    [[("✅ Yes, all sent", "FU:yes"), ("Cancel", "FU:no")]])
+            elif action == "yes":
+                if mid:
+                    await self.dex.owner.mark_decided(mid, "Marking them sent…")
+                await self.dex.owner.notify(await desk.complete_many("all"), urgent=True)
+            elif mid:
+                await self.dex.owner.mark_decided(mid, "OK, nothing changed.")
+            return
         if aid.startswith("F") and action in ("sent", "skip"):
-            await self.dex.crm.update_follow_up(aid, {"status": "Sent" if action == "sent" else "Skipped",
-                                                      **({"sent_at": clock.now()} if action == "sent" else {})})
-            if cq.get("message", {}).get("message_id"):
-                await self.dex.owner.mark_decided(cq["message"]["message_id"],
-                                                  f"{aid} · {'✅ Sent' if action == 'sent' else '⏭ Skipped'}")
+            result = await self.dex.followups.complete(aid, action)
+            if mid:
+                await self.dex.owner.mark_decided(mid, result)
+            left = len((self.dex.db.kv_get("followup_report") or {}).get("items", {}))
+            if "already" not in result and (self.dex.db.kv_get("followup_report") or {}).get("date"):
+                await self.dex.owner.notify(f"{left} follow-up{'s' if left != 1 else ''} left today."
+                                            if left else "🎉 All caught up.", urgent=True)
             return
         appr = self.dex.db.get_approval(aid)
         if not appr or appr["status"] != "pending":
@@ -180,6 +201,21 @@ class OwnerBot:
                         return await dex.decide(aid, "price", price=int(price.group(1)))
                     return await dex.decide(aid, "approve")
                 return await dex.decide(aid, "decline")
+        if cmd == "/followups":
+            await dex.followups.send_report("🧭 Follow-ups")
+            return None
+        if cmd in ("/done", "/skip") or DONE.match(text):
+            m = DONE.match(text)
+            action = "skip" if (cmd == "/skip" or (m and m.group(1).lower() == "skip")) else "sent"
+            rest = text.split(None, 1)[1] if len(text.split(None, 1)) > 1 else ""
+            if rest.strip().lower() == "all":
+                if action == "skip":
+                    return "To skip, list the numbers, e.g. /skip 2 4."
+                return await dex.followups.complete_many("all")
+            nums = [int(n) for n in re.findall(r"\d+", rest)]
+            if not nums:
+                return "Which ones? e.g. /done 1 3, /done all, or /skip 2"
+            return await dex.followups.complete_many(nums, action)
         if cmd == "/spend" and getattr(dex, "ledger", None):
             from app.services.spend import spend_text
             return await spend_text(dex.ledger, await dex.crm.get_settings())

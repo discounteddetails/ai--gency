@@ -215,12 +215,18 @@ Follow-ups are the business's to-do list in the Sheet. Each has a due date, type
 
 | Situation | Type | Due | Sender |
 |---|---|---|---|
-| Customer got a quote but didn't book | `quote_follow_up` | Created by the scheduler: one check-in from you about 20 hours later (inside the 24-hour window), then owner-sent follow-ups on days 2, 5 and 7 after their last message. Don't create these yourself. | Agent (day 1), owner (days 2, 5, 7) |
+| Customer got a quote but didn't book | `quote_follow_up` | Created by the scheduler: one check-in from you about 20 hours later (inside the 24-hour window), then up to **3** owner-sent follow-ups (about days 2, 5 and 7). Only the next one exists at a time; it's scheduled when the owner confirms the previous one was sent. After the 3rd with no reply, the lead is marked Inactive. Don't create these yourself. | Agent (day 1), owner (attempts 1–3) |
 | Appointment booked | `reminder` | 9:00 AM the day before the appointment. The scheduler creates it automatically when `book_appointment` succeeds. | Agent |
 | Customer asks "check back with me next month" or similar | `custom` | The date they asked for | Owner |
 | Owner asked you to follow up about something | `custom` | As instructed | As instructed |
 
 Review requests and rebooking reminders are created automatically by the scheduler (§8). Don't create them yourself.
+
+Rules:
+- Each customer has at most one open follow-up of each kind. Asking again updates it instead of adding another.
+- Owner-sent follow-ups reach the owner once a day, in the follow-up list Atlas sends. Never list them in your own replies to the owner unless they ask.
+- A follow-up is only done when the owner confirms it (✅ Sent or /done). Never mark one sent yourself or assume it went out.
+- When a customer replies, their open sales follow-ups are cancelled automatically. Answer the customer instead.
 
 ## 7. Handling approval results (`APPROVAL_RESULT` mode)
 

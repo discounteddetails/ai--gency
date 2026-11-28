@@ -5,7 +5,8 @@ from __future__ import annotations
 
 TABS: dict[str, list[str]] = {
     "Follow-ups": ["follow_up_id", "customer_id", "customer_name", "job_id", "type", "due_at", "sender", "channel",
-                   "message", "status", "created_by", "sent_at", "notes"],
+                   "message", "status", "created_by", "sent_at", "notes", "attempt", "category", "priority",
+                   "context", "completed_by"],
     "Jobs": ["job_id", "customer_id", "vehicle_id", "service", "addons", "condition", "size_class", "address", "start",
              "end", "base_price", "addons_price", "condition_price", "travel_fee", "override_price", "total", "status",
              "completed_by", "calendar_event_id", "booked_by", "source_channel", "notes", "photos_status",
@@ -94,6 +95,7 @@ SETTINGS_ROWS: list[tuple[str, object, str]] = [
     ("promo_ends", "", "Last day of the offer (YYYY-MM-DD). After this, Dex stops honoring it"),
     ("promo_discount", 0, "Dollars off every booking made while the offer runs (0 = none)"),
     ("monthly_fixed_costs", "", "Your monthly bills for the agents, e.g. Railway 10; Composio 29 (shows in /spend)"),
+    ("followup_report_time", "10:00", "When Atlas sends your one daily follow-up list (24-hour time, e.g. 09:30)"),
     ("daily_ai_alert_usd", 5, "Alert on Telegram if AI costs pass this many dollars in one day"),
     ("promo_story_title", "", "Story image: small title on top (e.g. BLACK FRIDAY)"),
     ("promo_story_headline", "", "Story image: big text, two lines split with | (e.g. $20 OFF|ANY DETAIL)"),

@@ -15,6 +15,7 @@ Dex answers Discounted Details' Instagram and Messenger DMs (through Composio), 
 | `app/nova/` | Nova, the social media agent: photo intake, privacy blur, captions, Story/post publishing |
 | `app/atlas/` | Atlas, the operations manager: delegates to Dex/Nova/Pixel, Tasks tab, approval-gated business changes, morning brief (`docs/ATLAS_SPEC.md`) |
 | `app/pixel/` | Pixel, the graphic designer: `/design` requests, HTML designs rendered in locked-down Chromium |
+| `app/services/followups.py` | The one manual follow-up workflow: daily list, numbered cards, /done, 3-attempt limit (`docs/FOLLOWUPS.md`) |
 | `app/webhooks/telegram.py` | Owner bot: buttons, commands, typed replies |
 | `scripts/` | Sheet bootstrap, Telegram setup, Human Agent test, OnePageCRM import |
 | `tests/` | Unit and end-to-end tests with fakes (`tests/fakes.py`) |

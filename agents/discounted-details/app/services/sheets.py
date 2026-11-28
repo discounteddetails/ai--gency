@@ -318,7 +318,10 @@ class SheetsCRM:
 
     # ---------- follow-ups ----------
     async def create_follow_up(self, fields: dict[str, Any]) -> str:
-        return await self._create("Follow-ups", {"status": "Open", "created_by": "agent", **fields})
+        from app.services.followups import category_of
+        cat = category_of(fields)
+        extra = {"category": cat, **({"attempt": fields.get("attempt") or 1} if cat == "sales" else {})}
+        return await self._create("Follow-ups", {"status": "Open", "created_by": "agent", **fields, **extra})
 
     async def update_follow_up(self, follow_up_id: str, fields: dict[str, Any]) -> None:
         await self._update("Follow-ups", follow_up_id, fields)

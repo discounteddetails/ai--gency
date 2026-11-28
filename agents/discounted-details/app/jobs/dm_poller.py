@@ -72,6 +72,29 @@ class DMPoller:
                                       "fields": fields})
         return d.get("data", [])
 
+    async def latest_messages(self, channel: str, sender_id: str) -> list[dict[str, Any]] | None:
+        """Newest messages in a customer's conversation, or None if it can't be checked."""
+        conv = self.db.kv_get(f"conv_id:{channel}:{sender_id}")
+        try:
+            if not conv:
+                for c in await self._list(channel):
+                    ps = (c.get("participants") or {}).get("data", [])
+                    if any(str(p.get("id")) == str(sender_id) for p in ps):
+                        conv = c["id"]
+                        self.db.kv_set(f"conv_id:{channel}:{sender_id}", conv)
+                        break
+            if not conv:
+                return None
+            out = []
+            for m in await self._messages(channel, conv):
+                out.append({"at": clock.parse_iso(m["created_time"]) if m.get("created_time") else None,
+                            "from_business": self._is_business(channel, m.get("from") or {}),
+                            "text": str(m.get("message") or ""), "mid": str(m.get("id"))})
+            return sorted([m for m in out if m["at"]], key=lambda m: m["at"])
+        except Exception as e:
+            log.warning("couldn't check conversation %s:%s: %s", channel, sender_id, e)
+            return None
+
     async def poll_once(self) -> int:
         """Returns the number of new events handled. Never overlaps itself."""
         if self._lock.locked():
@@ -105,10 +128,12 @@ class DMPoller:
                 continue
             prev_seen = seen.get(cid)
             seen[cid] = updated
-            if not initialized:
-                continue  # first run: record state only, never reply to old messages
             participants = (conv.get("participants") or {}).get("data", [])
             customer = next((p for p in participants if not self._is_business(channel, p)), None)
+            if customer:
+                self.db.kv_set(f"conv_id:{channel}:{customer['id']}", cid)
+            if not initialized:
+                continue  # first run: record state only, never reply to old messages
             if not customer:
                 continue
             msgs = await self._messages(channel, cid)

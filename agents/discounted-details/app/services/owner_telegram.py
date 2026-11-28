@@ -84,6 +84,16 @@ class TelegramOwner:
         markup = {"inline_keyboard": [[{"text": t, "callback_data": d[:64]} for t, d in row] for row in buttons]}
         return await self._send(text, markup)
 
+    async def send_card(self, html_text: str, keyboard: list[list[dict[str, Any]]]) -> int | None:
+        """HTML card with raw inline buttons (copy_text / url / callback_data). Falls back to plain text."""
+        payload = {"chat_id": self.chat_id, "text": html_text[:MAX_LEN], "parse_mode": "HTML",
+                   "disable_web_page_preview": True, "reply_markup": {"inline_keyboard": keyboard}}
+        res = await self._call("sendMessage", payload)
+        if not res.get("ok"):  # e.g. an older Telegram without copy buttons: drop them and retry
+            kb = [[b for b in row if "copy_text" not in b] for row in keyboard]
+            res = await self._call("sendMessage", {**payload, "reply_markup": {"inline_keyboard": [r for r in kb if r]}})
+        return (res.get("result") or {}).get("message_id")
+
     async def edit_buttons(self, message_id: int, text: str, buttons: list[list[tuple[str, str]]]) -> None:
         markup = {"inline_keyboard": [[{"text": t, "callback_data": d[:64]} for t, d in row] for row in buttons]}
         await self._call("editMessageText", {"chat_id": self.chat_id, "message_id": message_id, "text": text[:MAX_LEN],
@@ -155,6 +165,9 @@ class FakeOwner:
 
     async def edit_buttons(self, message_id, text, buttons) -> None:
         self._add(kind="edit_buttons", target=message_id, text=text, buttons=buttons)
+
+    async def send_card(self, html_text, keyboard) -> int:
+        return self._add(kind="card", text=html_text, keyboard=keyboard)
 
     async def ask_for_text(self, prompt) -> int:
         return self._add(kind="ask", text=prompt)

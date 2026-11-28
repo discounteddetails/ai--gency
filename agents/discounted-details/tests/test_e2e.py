@@ -330,46 +330,6 @@ async def test_mode_restrictions(frozen):
     assert w.claude.last_tool_results()[0]["error"] == "TOOL_NOT_ALLOWED_IN_MODE"
 
 
-async def test_quote_followups_day_2_5_7_and_digest(frozen):
-    w = World()
-    await w.start()
-    q = dict(service="interior", size_class="sedan", addons=[], condition="standard")
-    w.claude.queue([tool("quote_price", **q, address=ADDR)],
-                   [tool("send_reply", customer_id=None, text="An Interior Detail for your Camry is $165.")], [say("ok")])
-    w.composio.customer_says("instagram", "181", "price for interior on my camry?", name="ktx.test")
-    await w.tick()
-    cust = (await w.crm.list_customers())[0]
-    assert cust["lead_status"] == "Quoted"
-    # still chatting after 3 hours: no sequence yet
-    with time_machine.travel(NOW + timedelta(hours=3), tick=True):
-        await w.jobs.quote_checkins()
-    assert not [f for f in w.rows("Follow-ups") if f["type"] == "quote_follow_up"]
-    # quiet for a day -> 3 owner follow-ups due on days 2, 5 and 7 at 10 AM, each worded differently
-    with time_machine.travel(NOW + timedelta(hours=25), tick=True):
-        await w.jobs.quote_checkins()
-        await w.jobs.quote_checkins()  # idempotent
-    seq = [f for f in w.rows("Follow-ups") if f["type"] == "quote_follow_up"]
-    assert len(seq) == 3 and all(f["sender"] == "owner" for f in seq)
-    assert [str(f["due_at"])[:10] for f in seq] == ["2026-12-03", "2026-12-06", "2026-12-08"]
-    assert len({f["message"] for f in seq}) == 3 and "$165" in seq[0]["message"]
-    # day 2, 10 AM digest: one Telegram card with the message and Sent/Skip buttons
-    with time_machine.travel(datetime(2026, 12, 3, 10, 0, tzinfo=clock.TZ), tick=True):
-        assert await w.jobs.owner_followup_digest() == 1
-    card = [m for m in w.owner.messages if m["kind"] == "buttons"][-1]
-    assert "@ktx.test" in card["text"] and seq[0]["message"] in card["text"]
-    fid = seq[0]["follow_up_id"]
-    await w.bot.handle_update({"callback_query": {"id": "c", "data": f"{fid}:sent",
-                                                  "message": {"chat": {"id": 9229985118}, "message_id": card["id"]}}})
-    assert [f for f in w.rows("Follow-ups") if f["follow_up_id"] == fid][0]["status"] == "Sent"
-    # customer replies -> remaining follow-ups are cancelled
-    with time_machine.travel(datetime(2026, 12, 4, 9, 0, tzinfo=clock.TZ), tick=True):
-        w.claude.queue([say("ok")])
-        w.composio.customer_says("instagram", "181", "actually yes, saturday?")
-        await w.tick()
-    statuses = {f["follow_up_id"]: f["status"] for f in w.rows("Follow-ups") if f["type"] == "quote_follow_up"}
-    assert sorted(statuses.values()) == ["Cancelled", "Cancelled", "Sent"]
-
-
 async def test_activity_feed_for_booking(frozen):
     w = World()
     await w.start()

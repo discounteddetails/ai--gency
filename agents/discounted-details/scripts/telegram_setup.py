@@ -20,6 +20,7 @@ COMMANDS = [("today", "Today's jobs"), ("tomorrow", "Tomorrow's jobs"), ("status
             ("style", "What Pixel remembers about your taste"),
             ("tasks", "Atlas: open tasks"), ("brief", "Atlas: morning brief now"),
             ("spend", "What the agents cost"),
+            ("followups", "Today's follow-up list"), ("done", "Mark follow-ups sent: /done 1 3 or /done all"),
             ("help", "How to use Dex")]
 
 

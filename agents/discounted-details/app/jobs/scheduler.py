@@ -65,7 +65,9 @@ def build_scheduler(jobs: Jobs, poller: DMPoller, poll_seconds: int, poll_second
               id="daily_summary")
     s.add_job(safe(jobs.send_due_agent_followups), CronTrigger(hour="7-19", minute="*/15"), id="followups")
     s.add_job(safe(jobs.quote_checkins), CronTrigger(minute=5), id="quote_checkins")
-    s.add_job(safe(jobs.owner_followup_digest), CronTrigger(hour=10, minute=0), id="owner_followup_digest")
+    # One daily follow-up list, at the owner's chosen time (Settings: followup_report_time), delivered by Atlas
+    s.add_job(safe(atlas.followup_report_if_due if atlas else jobs.followup_report_if_due), CronTrigger(minute="*/5"),
+              id="followup_report")
     s.add_job(safe(jobs.auto_complete_jobs), CronTrigger(hour=21, minute=0), id="auto_complete")
     s.add_job(safe(jobs.post_job_followups), CronTrigger(hour=21, minute=5), id="post_job_followups")
     s.add_job(safe(jobs.approval_reminders), CronTrigger(minute="*/15"), id="approval_reminders")

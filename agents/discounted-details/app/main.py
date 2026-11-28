@@ -73,6 +73,7 @@ def build(settings=None):
                       on_customer_message=dex.on_customer_message, on_owner_message=dex.on_owner_message,
                       on_failure_streak=poll_alert)
     jobs = Jobs(dex, s.HEALTHCHECK_URL)
+    dex.followups.conversations = poller  # check the latest messages before asking the owner to follow up
     bot = OwnerBot(dex, s.TELEGRAM_OWNER_CHAT_ID, s.TELEGRAM_WEBHOOK_SECRET.get_secret_value())
     if s.NOVA_ENABLED:
         from app.nova.media import MediaHost

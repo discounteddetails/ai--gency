@@ -59,6 +59,8 @@ class Dex:
         self._thread_locks: dict[str, asyncio.Lock] = {}
         self.activity = Activity(crm.store)
         self.on_business_change = None  # set by Atlas to track approvals on its tasks
+        from app.services.followups import FollowUpDesk
+        self.followups = FollowUpDesk(self)  # main wires the DM poller in, to check conversations
 
     # ------------------------------------------------------------------ flags
     @property
@@ -113,7 +115,7 @@ class Dex:
                                     "text": text, "attachment_url": ", ".join(ev.attachments),
                                     "message_id": ev.mid})
         await self.crm.update_customer(customer["customer_id"], {"last_inbound_at": ev.timestamp})
-        await self.cancel_quote_followups(customer["customer_id"], "Customer replied")
+        await self.followups.customer_replied(customer)
         who = self.display_name(customer)
         if self.crm.is_dnc(customer):
             await self.owner.notify(f"🚫 Do-Not-Contact customer {who} ({CHANNEL_LABEL[ev.channel]}) messaged again: "

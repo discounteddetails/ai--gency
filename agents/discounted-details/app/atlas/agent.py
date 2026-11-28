@@ -369,6 +369,11 @@ class Atlas:
                               "Morning brief sent ☀️")
         return text
 
+    async def followup_report_if_due(self) -> int:
+        """Atlas delivers Dex's follow-up list once a day (the only follow-up report the owner gets)."""
+        from app.jobs.tasks import send_followup_report_if_due
+        return await send_followup_report_if_due(self.dex, "🧭 Atlas · Follow-ups")
+
     async def weekly_ideas(self) -> str:
         try:
             data = {"jobs": await self.snapshot("jobs"), "leads": await self.snapshot("leads"),

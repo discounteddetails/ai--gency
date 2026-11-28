@@ -80,6 +80,19 @@ async def render(dex: Dex, fu_type: str, customer: dict[str, Any], job: dict[str
     return ""
 
 
+async def send_followup_report_if_due(dex: Dex, header: str) -> int:
+    now = clock.now()
+    raw = str((await dex.crm.get_settings()).get("followup_report_time") or "10:00")
+    try:
+        hh, mm = (int(x) for x in raw.replace(".", ":").split(":")[:2])
+    except ValueError:
+        hh, mm = 10, 0
+    if (now.hour, now.minute) < (hh, mm) or dex.db.kv_get("followup_report_day") == now.date().isoformat():
+        return 0
+    dex.db.kv_set("followup_report_day", now.date().isoformat())
+    return await dex.followups.send_report(header)
+
+
 class Jobs:
     def __init__(self, dex: Dex, healthcheck_url: str | None = None):
         self.dex = dex
@@ -160,13 +173,22 @@ class Jobs:
         because Meta doesn't allow automated follow-ups outside the 24-hour window)."""
         dex = self.dex
         quiet_since = t["last_inbound_at"]  # days count from their last message
-        for step in QUOTE_SEQUENCE_DAYS:
+        # Only attempt 1 is created now; the next one is scheduled when the owner confirms this one was sent
+        # (FollowUpDesk.complete), so attempts never pile up or double-count.
+        if not any(f.get("category") == "sales" or f.get("type") == "quote_follow_up"
+                   for f in await dex.crm.list_follow_ups(status="Open", customer_id=c["customer_id"])):
+            step = QUOTE_SEQUENCE_DAYS[0]
             due = (quiet_since + timedelta(days=step)).replace(hour=10, minute=0, second=0, microsecond=0)
             await dex.crm.create_follow_up({
                 "customer_id": c["customer_id"], "customer_name": dex.display_name(c), "type": "quote_follow_up",
                 "due_at": due, "sender": "owner", "channel": t["channel"], "created_by": "scheduler",
-                "message": quote_followup_text(dex, c, step), "notes": f"Quote follow-up, day {step}"})
+                "message": quote_followup_text(dex, c, step), "attempt": 1, "category": "sales",
+                "notes": "Follow-up 1/3 after quote"})
         dex.db.kv_set(f"quote_seq:{t['thread_id']}", quiet_since.isoformat())
+
+    async def followup_report_if_due(self) -> int:
+        """Without Atlas: same single report, sent by Dex at followup_report_time."""
+        return await send_followup_report_if_due(self.dex, "📋 Follow-ups")
 
     async def owner_followup_digest(self) -> int:
         """10 AM: post every owner follow-up due today to Telegram, one message each, ready to copy and send."""
@@ -306,9 +328,8 @@ class Jobs:
         since = now - timedelta(hours=14)
         new_leads = [c for c in await dex.crm.list_customers() if (d := _dt(c.get("first_contact_at"))) and d >= since]
         booked = sum(1 for c in new_leads if c.get("lead_status") in ("Booked", "Customer"))
+        del due  # follow-ups are reported once a day in the follow-up list (FollowUpDesk), not here
         lines = [f"☀️ {today}",
-                 f"Send today: {len(due)} msg{'s' if len(due) != 1 else ''} (Follow-ups tab)"
-                 + (f" → {dex.cfg.sheet_url}" if dex.cfg.sheet_url and due else ""),
                  "Pending approvals: " + (", ".join(f"{a['approval_id']} {a['type']}" for a in pending) or "none"),
                  f"New leads overnight: {len(new_leads)} ({booked} booked)"]
         return "\n".join(lines)
