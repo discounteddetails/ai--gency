@@ -346,9 +346,17 @@ class Dex:
     async def _apply(self, type_: str, decision: str, p: dict[str, Any], customer: dict[str, Any] | None,
                      aid: str, text: str | None, thread_id: str | None) -> str:
         if type_ in ("reply", "late_reply"):
+            fid = p.get("follow_up_id")
             if decision in ("approve", "edit") and customer:
-                route = await self.deliver_owner_text(customer, text if decision == "edit" else p.get("draft", ""))
+                msg = text if decision == "edit" else p.get("draft", "")
+                route = await self.deliver_owner_text(customer, msg)
+                if fid:  # an approved follow-up: close it (or note it moved to the owner's list)
+                    await self.crm.update_follow_up(fid, {"status": "Sent", "sent_at": clock.now(), "message": msg}
+                                                    if route != "owner" else {"status": "Cancelled",
+                                                                              "notes": "Moved to your list"})
                 return f"{aid}: {'sent' if route != 'owner' else 'window closed, added to your follow-ups'}."
+            if fid:
+                await self.crm.update_follow_up(fid, {"status": "Skipped"})
             return f"{aid}: skipped."
         if type_ == "complaint":
             if decision in ("approve", "edit") and customer:

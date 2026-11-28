@@ -428,3 +428,27 @@ async def test_follow_up_not_duplicated(frozen):
         await w.runner.run_owner_command("follow up with Lexi about her quote", quiet=True)
     rows = [r for r in w.rows("Follow-ups") if r["customer_id"] == cid]
     assert len(rows) == 1 and rows[0]["message"] == "second draft"
+
+
+async def test_test_mode_follow_up_sends_approval_card(frozen):
+    """Shadow mode + open window: a due follow-up becomes an approval card right away, and Send closes it."""
+    w = World(shadow=True)
+    await w.start()
+    w.composio.customer_says("instagram", "999", "how much for an interior on my Q5", name="lexi.vndt",
+                             at=clock.now() - timedelta(hours=3))
+    w.claude.queue([])
+    await w.tick()
+    cid = w.rows("Customers")[0]["customer_id"]
+    await w.crm.create_follow_up({"customer_id": cid, "customer_name": "lexi.vndt", "type": "quote_follow_up",
+                                  "due_at": clock.now() - timedelta(minutes=5), "sender": "agent",
+                                  "channel": "instagram", "message": "Still want that Q5 interior? 🙂"})
+    assert await w.jobs.send_due_agent_followups() == 1
+    card = [m for m in w.owner.messages if m["kind"] == "buttons"][-1]
+    assert "Still want that Q5 interior" in card["text"]
+    fu = [r for r in w.rows("Follow-ups") if r["customer_id"] == cid][0]
+    assert fu["status"] == "Awaiting approval"
+    assert await w.jobs.send_due_agent_followups() == 0  # no second card
+    aid = card["buttons"][0][0][1].split(":")[0]
+    await w.dex.decide(aid, "approve")
+    fu = [r for r in w.rows("Follow-ups") if r["customer_id"] == cid][0]
+    assert fu["status"] == "Sent" and w.composio.sent[-1]["text"] == "Still want that Q5 interior? 🙂"

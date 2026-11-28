@@ -104,6 +104,16 @@ class Jobs:
             thread = dex.thread_for(customer)
             window, _ = dm_window_state(thread.get("last_inbound_at") if thread else None, now)
             sent = False
+            if thread and window == "open" and not dex.is_paused(thread) and not dex.paused and dex.shadow:
+                # Test mode: the owner approves each message, so send a card now instead of tomorrow's to-do list.
+                aid = await dex.create_approval(
+                    "reply", customer, summary=f"Follow-up ({fu['type'].replace('_', ' ')})", draft=text,
+                    payload={"human_agent": False, "follow_up_id": fu["follow_up_id"]})
+                await dex.crm.update_follow_up(fu["follow_up_id"], {"status": "Awaiting approval", "message": text,
+                                                                     "notes": f"Approval {aid}"})
+                log.info("follow-up %s sent to owner for approval (%s)", fu["follow_up_id"], aid)
+                n += 1
+                continue
             if thread and window == "open" and not dex.is_paused(thread) and not dex.paused and not dex.shadow:
                 try:
                     await dex._dm_send(customer, thread["channel"], thread["sender_id"], text)
@@ -112,7 +122,9 @@ class Jobs:
                     log.info("follow-up DM failed, handing to owner: %s", e)
             if sent:
                 await dex.crm.update_follow_up(fu["follow_up_id"], {"status": "Sent", "sent_at": now, "message": text})
+                log.info("follow-up %s sent", fu["follow_up_id"])
             else:
+                log.info("follow-up %s moved to the owner's list (window %s)", fu["follow_up_id"], window)
                 await dex.crm.update_follow_up(fu["follow_up_id"], {"sender": "owner", "message": text})
             n += 1
         return n
